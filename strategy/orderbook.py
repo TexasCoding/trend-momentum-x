@@ -16,10 +16,10 @@ class OrderBookAnalyzer:
             return None
 
         try:
-            # get_market_imbalance returns LiquidityAnalysisResponse
+            # get_market_imbalance returns LiquidityAnalysisResponse object
             result = await self.suite.orderbook.get_market_imbalance(levels=self.depth_levels)
             if result and hasattr(result, 'depth_imbalance'):
-                return float(result["depth_imbalance"])
+                return float(result.depth_imbalance)
             return None
         except Exception:
             return None
@@ -52,8 +52,9 @@ class OrderBookAnalyzer:
 
         confirmation["imbalance"] = imbalance
 
-        if imbalance <= self.imbalance_long_threshold:
-            confirmation["reason"] = f"Insufficient bid imbalance: {imbalance:.2f} <= {self.imbalance_long_threshold}"
+        # For long entry, we want bid volume > ask volume (imbalance > threshold)
+        if imbalance < self.imbalance_long_threshold:
+            confirmation["reason"] = f"Insufficient bid imbalance: {imbalance:.2f} < {self.imbalance_long_threshold}"
             return False, confirmation
 
         if self.iceberg_check_enabled:
@@ -84,8 +85,9 @@ class OrderBookAnalyzer:
 
         confirmation["imbalance"] = imbalance
 
-        if imbalance >= self.imbalance_short_threshold:
-            confirmation["reason"] = f"Insufficient ask imbalance: {imbalance:.2f} >= {self.imbalance_short_threshold}"
+        # For short entry, we want ask volume > bid volume (imbalance < threshold)
+        if imbalance > self.imbalance_short_threshold:
+            confirmation["reason"] = f"Insufficient ask imbalance: {imbalance:.2f} > {self.imbalance_short_threshold}"
             return False, confirmation
 
         if self.iceberg_check_enabled:

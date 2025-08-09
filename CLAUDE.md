@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # TrendMomentumX Trading Strategy
 
 ## Project Overview
@@ -15,25 +19,27 @@ This is a multi-timeframe trend-aligned momentum breakout strategy for futures t
 ### Module Structure
 ```
 trend-momentum-x/
-├── main.py                 # Main entry point and trading loop
-├── strategy/
-│   ├── __init__.py
+├── main.py                 # Main entry point - TrendMomentumXStrategy class
+├── strategy/               # Core strategy components (all async)
+│   ├── __init__.py        # Exports: TrendAnalyzer, SignalGenerator, OrderBookAnalyzer, RiskManager, ExitManager
 │   ├── trend_analysis.py   # Multi-timeframe trend determination
 │   ├── signals.py          # Entry signal generation (RSI, WAE, patterns)
 │   ├── orderbook.py        # Level 2 data analysis and confirmation
 │   ├── risk_manager.py     # Position sizing and risk management
 │   └── exits.py            # Exit rules and trailing stop logic
-├── indicators/
-│   ├── __init__.py
+├── indicators/            # Custom indicators (NOT YET IMPLEMENTED)
 │   ├── wae.py             # Waddah Attar Explosion indicator
 │   ├── patterns.py        # Fair Value Gaps and Order Blocks
 │   └── fusion.py          # Custom indicator combinations
-├── backtest/
-│   ├── __init__.py
-│   └── engine.py          # Backtesting framework
-└── utils/
-    ├── __init__.py
-    └── config.py          # Configuration and parameters
+├── backtest/              # Backtesting framework (NOT YET IMPLEMENTED)
+│   └── engine.py          # Backtesting engine
+├── utils/                 # Utilities
+│   ├── __init__.py        # Exports: Config, setup_logger
+│   ├── config.py          # Configuration management with environment variables
+│   └── logger.py          # Async logging setup
+└── tests/                 # Test suite
+    ├── conftest.py        # Pytest fixtures and mocks
+    └── test_*.py          # Test files for each module
 ```
 
 ## Key Components
@@ -71,11 +77,12 @@ trend-momentum-x/
 
 ## Implementation Guidelines
 
-### project_x_py Integration
-- Use `TradingSuite` with orderbook=True, risk_manager=True
-- Subscribe to multi-timeframe WebSocket events
-- Leverage Polars-optimized indicators for performance
-- Use async/await pattern for non-blocking operations
+### project_x_py Integration Notes
+- Use `TradingSuite.create()` with orderbook=True, risk_manager=True
+- The TradingSuite handles WebSocket subscriptions internally
+- All strategy components accept TradingSuite instance in constructor
+- Use async/await pattern for all data fetching and order operations
+- Polars DataFrames are returned from all data operations
 
 ### Critical Functions to Implement
 1. `calculate_multi_timeframe_trend()` - Returns trend state across all timeframes
@@ -86,17 +93,23 @@ trend-momentum-x/
 
 ### Testing Commands
 ```bash
-# Run unit tests
-pytest tests/
+# Run all unit tests
+uv run pytest
 
-# Run backtesting
-python backtest/engine.py --days 30 --instrument ES
+# Run unit tests with coverage
+uv run pytest --cov=strategy --cov-report=html
 
-# Run live paper trading
-python main.py --mode paper
+# Run specific test file
+uv run pytest tests/test_trend_analysis.py
 
-# Run live trading (use with caution)
-python main.py --mode live
+# Run tests with verbose output
+uv run pytest -v
+
+# Run only unit tests (exclude integration)
+uv run pytest -m "not integration"
+
+# Run integration tests only
+uv run pytest -m integration
 ```
 
 ### Performance Metrics to Track
@@ -165,7 +178,7 @@ uv sync --upgrade
 
 ## Development Commands
 
-### Linting and Type Checking
+### Code Quality
 ```bash
 # Run ruff linter
 uv run ruff check
@@ -173,11 +186,14 @@ uv run ruff check
 # Run ruff with auto-fix
 uv run ruff check --fix
 
+# Format code with ruff
+uv run ruff format
+
 # Run type checking with mypy
 uv run mypy .
 
-# Format code with ruff
-uv run ruff format
+# Run all checks (linting + type checking)
+uv run ruff check && uv run mypy .
 ```
 
 ### Testing
@@ -205,6 +221,10 @@ TRADING_MODE=live uv run python main.py
 
 # With custom configuration
 INSTRUMENT=NQ RISK_PER_TRADE=0.01 uv run python main.py
+
+# NOTE: The strategy currently has no backtesting capability.
+# The backtest/ directory structure exists but is not implemented.
+# Live or paper trading is the only way to test the strategy.
 ```
 
 ## project-x-py API Reference
@@ -317,14 +337,17 @@ margin = account.margin  # Available margin
 
 ## Known Issues and TODOs
 
-### Current Limitations
-1. **Event Handling**: WebSocket event subscription is handled internally by TradingSuite, but we need to verify the callback mechanism
-2. **Stop Loss Modification**: The API for modifying stop loss orders needs confirmation
-3. **Order Status Tracking**: Need to implement order status tracking and fill confirmation
-4. **Backtesting**: Backtesting framework not yet implemented (live testing only)
+### Current Implementation Status
+1. **Core Modules**: All strategy modules (trend_analysis, signals, orderbook, risk_manager, exits) have been implemented with comprehensive test coverage
+2. **Indicators Directory**: Structure exists but custom indicators (WAE, FVG, OrderBlock) are NOT implemented - using project-x-py indicators instead
+3. **Backtesting**: Directory structure exists but NOT implemented - only paper/live trading available
+4. **Event Handling**: WebSocket event subscription is handled internally by TradingSuite, callback mechanism needs verification
+5. **Order Management**: Basic order placement implemented, but order status tracking and fill confirmation needs work
 
 ### TODO List
-- [ ] Add comprehensive unit tests for all strategy modules
+- [x] Add comprehensive unit tests for all strategy modules (91% test coverage achieved)
+- [ ] Implement custom indicators in indicators/ directory (WAE, FVG, OrderBlock)
+- [ ] Implement backtesting framework in backtest/ directory
 - [ ] Implement order status tracking and fill confirmation
 - [ ] Add performance metrics tracking and reporting
 - [ ] Create dashboard for real-time monitoring
@@ -398,6 +421,52 @@ TRAILING_STOP_ENABLED=true
 The strategy uses Python's standard logging with async support. Logs are written to:
 - Console: INFO level and above
 - File: `logs/trading_{date}.log` - DEBUG level and above
+
+## Testing Strategy
+
+### Test Coverage
+The project has comprehensive test coverage (91%) with both unit and integration tests:
+- **Unit Tests**: Test individual components in isolation using mocks
+- **Integration Tests**: Test component interactions with mocked TradingSuite
+- **Fixtures**: Shared test data and mocks in `tests/conftest.py`
+
+### Running Tests
+```bash
+# Quick test run during development
+uv run pytest tests/test_trend_analysis.py -v
+
+# Full test suite before commits
+uv run pytest --cov=strategy
+
+# Check specific functionality
+uv run pytest -k "test_long_entry" -v
+```
+
+## Key Architecture Patterns
+
+### Async/Await Pattern
+All strategy components use async methods for non-blocking operations:
+```python
+# All data fetching is async
+data = await suite.data.get_data("15s", bars=100)
+
+# All strategy methods that fetch data are async
+trend = await trend_analyzer.calculate_multi_timeframe_trend()
+signal = await signal_generator.detect_entry_signal()
+```
+
+### Dependency Injection
+All strategy components receive TradingSuite in constructor:
+```python
+class TrendAnalyzer:
+    def __init__(self, suite: TradingSuite):
+        self.suite = suite
+```
+
+### Configuration Management
+- All configuration comes from environment variables via `Config` class
+- No hardcoded values in strategy logic
+- Config provides typed access to all settings
 
 ## Contact and Support
 

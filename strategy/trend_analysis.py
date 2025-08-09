@@ -91,9 +91,14 @@ class TrendAnalyzer:
             "1min": trend_1m
         }
 
-        if all(t == "bullish" for t in trends.values()):
+        # Count aligned trends - relax requirement from all 3 to at least 2
+        bullish_count = sum(1 for t in trends.values() if t == "bullish")
+        bearish_count = sum(1 for t in trends.values() if t == "bearish")
+
+        # Primary trend (15min) must be aligned, plus at least one other
+        if trend_15m == "bullish" and bullish_count >= 2:
             return "long_only"
-        elif all(t == "bearish" for t in trends.values()):
+        elif trend_15m == "bearish" and bearish_count >= 2:
             return "short_only"
         else:
             return "no_trade"

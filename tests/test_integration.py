@@ -1,7 +1,7 @@
 """Integration tests for the complete trading strategy."""
 
 import asyncio
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -148,9 +148,9 @@ class TestTrendMomentumXIntegration:
             call_args = mock_suite.orders.place_bracket_order.call_args[1]
             assert call_args["side"] == 0  # Long
             assert call_args["size"] == 2
-            assert call_args["entry_price"] == 5000.0
-            assert call_args["stop_loss_price"] == 4995.0
-            assert call_args["take_profit_price"] == 5010.0
+            assert call_args["entry_price"] == 5000.5  # Account for 2 tick slippage on long
+            assert call_args["stop_loss_price"] == 4995.5  # Stop adjusted for new entry
+            assert call_args["take_profit_price"] == 5010.5  # Target adjusted for new entry
 
             # Verify position added to risk manager
             # Since add_position is a regular method, mock it
@@ -209,32 +209,33 @@ class TestTrendMomentumXIntegration:
     @pytest.mark.asyncio
     async def test_daily_pnl_reset(self, mock_suite):
         """Test daily P&L reset at midnight."""
+        from datetime import datetime, date, timedelta
+        
         with patch("main.TradingSuite.create", return_value=mock_suite):
-            with patch("main.datetime") as mock_datetime:
-                strategy = TrendMomentumXStrategy()
-                await strategy.initialize()
+            strategy = TrendMomentumXStrategy()
+            await strategy.initialize()
+            
+            # Set last reset to yesterday so reset will trigger
+            yesterday = datetime.now().date() - timedelta(days=1)
+            strategy.last_daily_reset = yesterday
+            
+            # Mock reset_daily_pnl as a MagicMock object
+            strategy.risk_manager.reset_daily_pnl = MagicMock()
+            
+            # Create a simple run loop that executes once
+            strategy.running = True
 
-                # Mock it's midnight
-                mock_now = Mock()
-                mock_now.hour = 0
-                mock_now.minute = 0
-                mock_datetime.now.return_value = mock_now
+            async def stop_after_one():
+                await asyncio.sleep(1.5)  # Let it run through one loop iteration
+                strategy.running = False
 
-                # Create a simple run loop that executes once
-                strategy.running = True
+            task = asyncio.create_task(stop_after_one())
+            
+            # Run strategy - it should detect date change and reset
+            await asyncio.create_task(strategy.run())
+            await task
 
-                async def stop_after_one():
-                    await asyncio.sleep(0.1)
-                    strategy.running = False
-
-                task = asyncio.create_task(stop_after_one())
-                # Mock reset_daily_pnl as a Mock object
-                strategy.risk_manager.reset_daily_pnl = Mock()
-                
-                await strategy.run()
-                await task
-
-                strategy.risk_manager.reset_daily_pnl.assert_called()
+            strategy.risk_manager.reset_daily_pnl.assert_called()
 
     @pytest.mark.asyncio
     async def test_check_long_entry_flow(self, mock_suite):
