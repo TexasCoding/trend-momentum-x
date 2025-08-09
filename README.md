@@ -1,6 +1,6 @@
 # TrendMomentumX Trading Strategy
 
-A multi-timeframe trend-aligned momentum breakout strategy for futures trading, powered by [Project X](https://github.com/TexasCoding/project-x) and built with [project-x-py](https://github.com/TexasCoding/project-x-py).
+A multi-timeframe trend-aligned momentum breakout strategy for futures trading, powered by [Project X](https://www.projectx.com/) and built with [project-x-py](https://github.com/TexasCoding/project-x-py).
 
 ## Overview
 
@@ -17,7 +17,7 @@ TrendMomentumX is a sophisticated algorithmic trading strategy that combines mul
 
 ## Project X Integration
 
-This strategy leverages the full power of [Project X](https://github.com/TexasCoding/project-x), a comprehensive trading framework that provides:
+This strategy leverages the full power of [Project X](https://www.projectx.com/), a comprehensive trading framework that provides:
 - Real-time WebSocket data feeds
 - Level 2 order book analysis
 - Advanced technical indicators optimized with Polars DataFrames
@@ -229,7 +229,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Acknowledgments
 
-- Built with [Project X](https://github.com/TexasCoding/project-x) - The comprehensive trading framework
+- Built with [Project X](https://www.projectx.com/) - The comprehensive trading framework
 - Powered by [project-x-py](https://github.com/TexasCoding/project-x-py) - The official Python SDK
 - Optimized with [Polars](https://github.com/pola-rs/polars) - Lightning-fast DataFrame library
 - Package management by [uv](https://github.com/astral-sh/uv) - An extremely fast Python package installer
