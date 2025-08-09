@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from project_x_py import TradingSuite
+from project_x_py.event_bus import Event, EventType
 
 from strategy import ExitManager, OrderBookAnalyzer, RiskManager, SignalGenerator, TrendAnalyzer
 from utils import Config, setup_logger
@@ -21,6 +22,9 @@ class TrendMomentumXStrategy:
         self.exit_manager: ExitManager | None = None
         self.running = False
         self.volume_avg_1min = 0.0
+        self.pending_orders: dict[str, dict] = {}  # Track pending orders
+        self.last_daily_reset = datetime.now().date()
+        self.last_weekly_reset = datetime.now().date()
 
     async def initialize(self):
         self.logger.info("Initializing TrendMomentumX Strategy...")
@@ -28,8 +32,9 @@ class TrendMomentumXStrategy:
 
         try:
             self.suite = await TradingSuite.create(
-                Config.INSTRUMENT,
-                **Config.get_trading_suite_config()
+                instrument=Config.INSTRUMENT,
+                timeframes=Config.TIMEFRAMES,
+                features=["orderbook"],  # Enable orderbook feature
             )
 
             self.trend_analyzer = TrendAnalyzer(self.suite)
@@ -39,8 +44,12 @@ class TrendMomentumXStrategy:
             self.exit_manager = ExitManager(self.suite)
 
             # Subscribe to events using the EventBus
-            # The event subscription will be handled by the data manager and position manager
-            # They will emit events that we can handle in our callbacks
+            if hasattr(self.suite, "events") and self.suite.events:
+                await self.suite.events.on(EventType.NEW_BAR, self.on_new_bar)
+                await self.suite.events.on(EventType.POSITION_UPDATED, self.on_position_update)
+                self.logger.info("Event subscriptions registered")
+            else:
+                self.logger.warning("EventBus not found, cannot subscribe to events")
 
             self.logger.info("Strategy initialized successfully")
             self.running = True
@@ -49,13 +58,17 @@ class TrendMomentumXStrategy:
             self.logger.error(f"Failed to initialize strategy: {e}")
             raise
 
-    async def on_new_bar(self, event_data):
-        _ = event_data  # Event data may be used in future implementations
+    async def on_new_bar(self, event: Event):
+        event_data = event.data if hasattr(event, "data") else event
         if not self.running:
             return
+        # Only process signals on the primary timeframe (15sec)
+        if isinstance(event_data, dict) and event_data.get("timeframe") != "15sec":
+            # Update 1-minute volume average on 1-minute bars
+            if event_data.get("timeframe") == "1min":
+                await self.update_volume_average()
+            return
 
-        # Process all timeframes since we get all bar updates
-        await self.update_volume_average()
         await self.process_trading_signal()
 
     async def update_volume_average(self):
@@ -105,16 +118,17 @@ class TrendMomentumXStrategy:
         try:
             if not self.suite:
                 return False
-            data_15s = await self.suite.data.get_data("15s", bars=1)
+            data_15s = await self.suite.data.get_data("15sec", bars=1)
             if data_15s is None or len(data_15s) == 0:
                 return False
 
             current_volume = data_15s.tail(1)["volume"][0]
 
-            if self.volume_avg_1min > 0:
-                return bool(current_volume >= Config.VOLUME_THRESHOLD_PERCENT * self.volume_avg_1min)
+            # Require volume average to be established before trading
+            if self.volume_avg_1min <= 0:
+                return False
 
-            return True
+            return bool(current_volume >= Config.VOLUME_THRESHOLD_PERCENT * self.volume_avg_1min)
 
         except Exception as e:
             self.logger.error(f"Error checking volume filter: {e}")
@@ -171,16 +185,28 @@ class TrendMomentumXStrategy:
                 self.logger.error("Unable to get current price")
                 return
 
+            # Calculate slippage based on instrument tick size
+            slippage_ticks = 2  # Conservative 2 tick slippage
+            if self.suite.instrument and hasattr(self.suite.instrument, "tickSize"):
+                tick_size = self.suite.instrument.tickSize
+                slippage = slippage_ticks * tick_size
+
+                # Adjust entry price for expected slippage
+                if direction == "long":
+                    entry_price = current_price + slippage
+                else:
+                    entry_price = current_price - slippage
+            else:
+                entry_price = current_price
+
             if not self.risk_manager:
                 return
-            stop_price = await self.risk_manager.calculate_stop_price(current_price, direction)
+            stop_price = await self.risk_manager.calculate_stop_price(entry_price, direction)
             target_price = self.risk_manager.calculate_target_price(
-                current_price, stop_price, direction
+                entry_price, stop_price, direction
             )
 
-            position_size = await self.risk_manager.calculate_position_size(
-                current_price, stop_price
-            )
+            position_size = await self.risk_manager.calculate_position_size(entry_price, stop_price)
 
             if not position_size or position_size <= 0:
                 self.logger.error("Invalid position size calculated")
@@ -190,7 +216,7 @@ class TrendMomentumXStrategy:
 
             self.logger.info(
                 f"Placing {direction} order: "
-                f"Size={position_size}, Entry={current_price:.2f}, "
+                f"Size={position_size}, Entry={entry_price:.2f}, "
                 f"Stop={stop_price:.2f}, Target={target_price:.2f}"
             )
 
@@ -200,20 +226,27 @@ class TrendMomentumXStrategy:
                 contract_id=str(self.suite.instrument.id) if self.suite.instrument else "0",
                 side=side,
                 size=position_size,
-                entry_price=current_price,
+                entry_price=entry_price,
                 stop_loss_price=stop_price,
-                take_profit_price=target_price
+                take_profit_price=target_price,
             )
 
             if response:
+                order_id = str(response) if response else None
                 position = {
-                    "id": str(response) if response else None,
+                    "id": order_id,
                     "direction": direction,
-                    "entry_price": current_price,
+                    "entry_price": entry_price,
                     "stop_price": stop_price,
                     "target_price": target_price,
-                    "size": position_size
+                    "size": position_size,
+                    "status": "pending",
+                    "created_at": datetime.now(),
                 }
+
+                # Track pending order
+                if order_id:
+                    self.pending_orders[order_id] = position
 
                 if self.risk_manager:
                     self.risk_manager.add_position(position)
@@ -228,14 +261,34 @@ class TrendMomentumXStrategy:
         except Exception as e:
             self.logger.error(f"Error entering trade: {e}")
 
-    async def on_position_update(self, event):
-        position_id = event.get("position_id")
-        status = event.get("status")
-        pnl = event.get("pnl", 0)
+    async def on_position_update(self, event: Event):
+        event_data = event.data if hasattr(event, "data") else event
+        if isinstance(event_data, dict):
+            position_id = event_data.get("position_id")
+            status = event_data.get("status")
+            pnl = event_data.get("pnl", 0)
+        else:
+            position_id = None
+            status = None
+            pnl = 0
+
+        # Update pending order status
+        if position_id in self.pending_orders:
+            if status == "filled":
+                self.pending_orders[position_id]["status"] = "active"
+                self.logger.info(f"Order {position_id} filled")
+            elif status == "cancelled" or status == "rejected":
+                # Remove from tracking if order failed
+                del self.pending_orders[position_id]
+                if self.risk_manager and position_id:
+                    self.risk_manager.remove_position(str(position_id))
+                self.logger.warning(f"Order {position_id} {status}")
 
         if status == "closed":
-            if self.risk_manager:
-                self.risk_manager.remove_position(position_id)
+            if position_id in self.pending_orders:
+                del self.pending_orders[position_id]
+            if self.risk_manager and position_id:
+                self.risk_manager.remove_position(str(position_id))
                 self.risk_manager.update_pnl(pnl)
             self.logger.info(f"Position {position_id} closed with P&L: {pnl:.2f}")
 
@@ -249,15 +302,20 @@ class TrendMomentumXStrategy:
             while self.running:
                 await asyncio.sleep(1)
 
-                if datetime.now().hour == 0 and datetime.now().minute == 0:
+                # Check for daily reset (once per day at midnight)
+                current_date = datetime.now().date()
+                if current_date > self.last_daily_reset:
                     if self.risk_manager:
                         self.risk_manager.reset_daily_pnl()
                     self.logger.info("Daily P&L reset")
+                    self.last_daily_reset = current_date
 
-                if datetime.now().weekday() == 0 and datetime.now().hour == 0:
+                # Check for weekly reset (Monday at midnight)
+                if current_date.weekday() == 0 and current_date > self.last_weekly_reset:
                     if self.risk_manager:
                         self.risk_manager.reset_weekly_pnl()
                     self.logger.info("Weekly P&L reset")
+                    self.last_weekly_reset = current_date
 
         except asyncio.CancelledError:
             self.logger.info("Strategy cancelled")
@@ -287,11 +345,13 @@ class TrendMomentumXStrategy:
 
         self.logger.info("Strategy shutdown complete")
 
+
 def signal_handler(sig: int, frame: Any) -> None:
     _ = sig  # Signal number
     _ = frame  # Current stack frame
     print("\nReceived interrupt signal, shutting down...")
     sys.exit(0)
+
 
 async def main():
     signal.signal(signal.SIGINT, signal_handler)
@@ -306,6 +366,7 @@ async def main():
         print(f"Strategy error: {e}")
     finally:
         await strategy.shutdown()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

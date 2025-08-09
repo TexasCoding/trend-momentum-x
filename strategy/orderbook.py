@@ -2,24 +2,26 @@ from typing import Any
 
 from project_x_py import TradingSuite
 
+from utils import Config
+
 
 class OrderBookAnalyzer:
     def __init__(self, suite: TradingSuite):
         self.suite = suite
-        self.imbalance_long_threshold = 1.5
-        self.imbalance_short_threshold = 0.6667
+        self.imbalance_long_threshold = Config.IMBALANCE_LONG_THRESHOLD
+        self.imbalance_short_threshold = Config.IMBALANCE_SHORT_THRESHOLD
+        self.iceberg_check_enabled = Config.ICEBERG_CHECK
+        # NOTE: Not in Config, using hardcoded value
         self.depth_levels = 5
-        self.iceberg_check_enabled = True
 
     async def get_market_imbalance(self) -> float | None:
         if not hasattr(self.suite, 'orderbook') or self.suite.orderbook is None:
             return None
 
         try:
-            # get_market_imbalance returns LiquidityAnalysisResponse
             result = await self.suite.orderbook.get_market_imbalance(levels=self.depth_levels)
-            if result and hasattr(result, 'depth_imbalance'):
-                return float(result["depth_imbalance"])
+            if result and 'depth_imbalance' in result:
+                return float(result['depth_imbalance'])
             return None
         except Exception:
             return None
@@ -52,8 +54,9 @@ class OrderBookAnalyzer:
 
         confirmation["imbalance"] = imbalance
 
-        if imbalance <= self.imbalance_long_threshold:
-            confirmation["reason"] = f"Insufficient bid imbalance: {imbalance:.2f} <= {self.imbalance_long_threshold}"
+        # For long entry, we want bid volume > ask volume (imbalance > threshold)
+        if imbalance < self.imbalance_long_threshold:
+            confirmation["reason"] = f"Insufficient bid imbalance: {imbalance:.2f} < {self.imbalance_long_threshold}"
             return False, confirmation
 
         if self.iceberg_check_enabled:
@@ -84,8 +87,9 @@ class OrderBookAnalyzer:
 
         confirmation["imbalance"] = imbalance
 
-        if imbalance >= self.imbalance_short_threshold:
-            confirmation["reason"] = f"Insufficient ask imbalance: {imbalance:.2f} >= {self.imbalance_short_threshold}"
+        # For short entry, we want ask volume > bid volume (imbalance < threshold)
+        if imbalance > self.imbalance_short_threshold:
+            confirmation["reason"] = f"Insufficient ask imbalance: {imbalance:.2f} > {self.imbalance_short_threshold}"
             return False, confirmation
 
         if self.iceberg_check_enabled:

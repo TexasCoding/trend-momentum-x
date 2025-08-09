@@ -3,16 +3,19 @@ import polars as pl
 from project_x_py import TradingSuite
 from project_x_py.indicators import FVG, ORDERBLOCK, RSI, WAE
 
+from utils import Config
+
 
 class SignalGenerator:
     def __init__(self, suite: TradingSuite):
         self.suite = suite
-        self.rsi_period = 14
-        self.rsi_oversold = 30
-        self.rsi_overbought = 70
-        self.rsi_long_cross = 40
-        self.rsi_short_cross = 60
-        self.wae_sensitivity = 150
+        self.rsi_period = Config.RSI_PERIOD
+        self.rsi_oversold = Config.RSI_OVERSOLD
+        self.rsi_overbought = Config.RSI_OVERBOUGHT
+        self.rsi_long_cross = Config.RSI_LONG_CROSS
+        self.rsi_short_cross = Config.RSI_SHORT_CROSS
+        self.wae_sensitivity = Config.WAE_SENSITIVITY
+        # NOTE: These are not in Config, using hardcoded values
         self.ob_volume_percentile = 70
         self.fvg_min_gap_size = 0.001
 
@@ -25,7 +28,8 @@ class SignalGenerator:
             "details": {}
         }
 
-        data_15s = await self.suite.data.get_data("15s", bars=20)
+        # Fetch more bars for RSI lookback
+        data_15s = await self.suite.data.get_data("15sec", bars=self.rsi_period + 10)
         if data_15s is None or len(data_15s) < self.rsi_period + 2:
             return False, signals
 
@@ -33,16 +37,20 @@ class SignalGenerator:
                    .pipe(RSI, period=self.rsi_period)
                    .pipe(WAE, sensitivity=self.wae_sensitivity))
 
-        last_two_rows = data_15s.tail(2)
-        if len(last_two_rows) < 2:
-            return False, signals
+        # Check for recent dip below oversold
+        rsi_series = data_15s["RSI_14"]
+        last_rsi = rsi_series.tail(1)[0]
+        prev_rsi = rsi_series.tail(2)[0]
 
-        prev_rsi = last_two_rows["RSI_14"][0]
-        last_rsi = last_two_rows["RSI_14"][1]
+        recent_rsi = rsi_series.tail(10)[:-1]
+        recently_oversold = len([x for x in recent_rsi if x < self.rsi_oversold]) > 0
+        rsi_crossed_up = prev_rsi < self.rsi_long_cross and last_rsi >= self.rsi_long_cross
+
+        signals["rsi_cross"] = recently_oversold and rsi_crossed_up
+
+        last_two_rows = data_15s.tail(2)
         prev_high = last_two_rows["high"][0]
         current_close = last_two_rows["close"][1]
-
-        signals["rsi_cross"] = prev_rsi < self.rsi_oversold and last_rsi > self.rsi_long_cross
 
         last_wae = data_15s.tail(1)
         explosion = last_wae["WAE_explosion"][0]
@@ -55,7 +63,7 @@ class SignalGenerator:
         signals["pattern_edge"] = await self._check_bullish_pattern()
 
         signals["details"] = {
-            "rsi": {"prev": prev_rsi, "current": last_rsi},
+            "rsi": {"prev": prev_rsi, "current": last_rsi, "recently_oversold": recently_oversold},
             "wae": {"explosion": explosion, "trend": trend, "deadzone": deadzone},
             "price": {"close": current_close, "prev_high": prev_high}
         }
@@ -78,7 +86,7 @@ class SignalGenerator:
             "details": {}
         }
 
-        data_15s = await self.suite.data.get_data("15s", bars=20)
+        data_15s = await self.suite.data.get_data("15sec", bars=self.rsi_period + 10)
         if data_15s is None or len(data_15s) < self.rsi_period + 2:
             return False, signals
 
@@ -86,16 +94,19 @@ class SignalGenerator:
                    .pipe(RSI, period=self.rsi_period)
                    .pipe(WAE, sensitivity=self.wae_sensitivity))
 
-        last_two_rows = data_15s.tail(2)
-        if len(last_two_rows) < 2:
-            return False, signals
+        rsi_series = data_15s["RSI_14"]
+        last_rsi = rsi_series.tail(1)[0]
+        prev_rsi = rsi_series.tail(2)[0]
 
-        prev_rsi = last_two_rows["RSI_14"][0]
-        last_rsi = last_two_rows["RSI_14"][1]
+        recent_rsi = rsi_series.tail(10)[:-1]
+        recently_overbought = len([x for x in recent_rsi if x > self.rsi_overbought]) > 0
+        rsi_crossed_down = prev_rsi > self.rsi_short_cross and last_rsi <= self.rsi_short_cross
+
+        signals["rsi_cross"] = recently_overbought and rsi_crossed_down
+
+        last_two_rows = data_15s.tail(2)
         prev_low = last_two_rows["low"][0]
         current_close = last_two_rows["close"][1]
-
-        signals["rsi_cross"] = prev_rsi > self.rsi_overbought and last_rsi < self.rsi_short_cross
 
         last_wae = data_15s.tail(1)
         explosion = last_wae["WAE_explosion"][0]
@@ -108,7 +119,7 @@ class SignalGenerator:
         signals["pattern_edge"] = await self._check_bearish_pattern()
 
         signals["details"] = {
-            "rsi": {"prev": prev_rsi, "current": last_rsi},
+            "rsi": {"prev": prev_rsi, "current": last_rsi, "recently_overbought": recently_overbought},
             "wae": {"explosion": explosion, "trend": trend, "deadzone": deadzone},
             "price": {"close": current_close, "prev_low": prev_low}
         }
@@ -132,7 +143,7 @@ class SignalGenerator:
                   .pipe(ORDERBLOCK, min_volume_percentile=self.ob_volume_percentile))
 
         last_row = data_5m.tail(1)
-        data_15s = await self.suite.data.get_data("15s")
+        data_15s = await self.suite.data.get_data("15sec")
         if data_15s is None:
             return False
         current_price = data_15s.tail(1)["close"][0]
@@ -158,7 +169,7 @@ class SignalGenerator:
                   .pipe(ORDERBLOCK, min_volume_percentile=self.ob_volume_percentile))
 
         last_row = data_5m.tail(1)
-        data_15s = await self.suite.data.get_data("15s")
+        data_15s = await self.suite.data.get_data("15sec")
         if data_15s is None:
             return False
         current_price = data_15s.tail(1)["close"][0]
@@ -175,7 +186,7 @@ class SignalGenerator:
         return has_bearish_ob or has_fvg_fill
 
     async def get_microstructure_score(self) -> float:
-        data_15s = await self.suite.data.get_data("15s", bars=20)
+        data_15s = await self.suite.data.get_data("15sec", bars=20)
         if data_15s is None or len(data_15s) < 20:
             return 0.0
 
