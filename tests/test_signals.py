@@ -50,23 +50,39 @@ class TestSignalGenerator:
         assert valid is False
 
     @pytest.mark.asyncio
-    async def test_check_long_entry_valid_signal(self, mock_suite, sample_ohlcv_data):
+    async def test_check_long_entry_valid_signal(self, mock_suite):
         """Test long entry with valid signal conditions."""
-        from project_x_py.indicators import RSI, WAE
-
-        # Prepare data with indicators
-        data = sample_ohlcv_data.pipe(RSI, period=14).pipe(WAE, sensitivity=150)
+        # Create larger dataset for indicators
+        data = pl.DataFrame({
+            "timestamp": pl.datetime_range(
+                start=pl.datetime(2024, 1, 1, 9, 0),
+                end=pl.datetime(2024, 1, 1, 9, 30),
+                interval="15s",
+                eager=True
+            ),
+            "open": [5000.0 + i * 0.1 for i in range(121)],
+            "high": [5002.0 + i * 0.1 for i in range(121)],
+            "low": [4999.0 + i * 0.1 for i in range(121)],
+            "close": [5001.0 + i * 0.1 for i in range(121)],
+            "volume": [100 + i for i in range(121)]
+        })
 
         # Mock bullish pattern check
         generator = SignalGenerator(mock_suite)
         generator._check_bullish_pattern = AsyncMock(return_value=True)
 
-        # Set up bullish conditions
+        # Set up bullish conditions - manually add indicator columns
+        # The last 20 rows will be used by the strategy
+        rsi_values = [35.0] * 100 + [25.0] * 19 + [45.0, 45.0]  # Cross from oversold (121 total)
+        wae_explosion = [0.0] * 119 + [200.0, 200.0]  # Strong explosion
+        wae_trend = [0.0] * 119 + [1.0, 1.0]  # Positive trend
+        wae_deadzone = [100.0] * 121  # Deadzone threshold
+        
         data = data.with_columns([
-            pl.Series("RSI_14", [25.0] * (len(data) - 2) + [28.0, 45.0]),  # Cross from oversold
-            pl.Series("WAE_explosion", [0.0] * (len(data) - 1) + [200.0]),  # Strong explosion
-            pl.Series("WAE_trend", [0.0] * (len(data) - 1) + [1.0]),  # Positive trend
-            pl.Series("WAE_deadzone", [0.0] * (len(data) - 1) + [100.0])  # Below explosion
+            pl.Series("RSI_14", rsi_values[:len(data)]),
+            pl.Series("WAE_explosion", wae_explosion[:len(data)]),
+            pl.Series("WAE_trend", wae_trend[:len(data)]),
+            pl.Series("WAE_deadzone", wae_deadzone[:len(data)])
         ])
 
         mock_suite.data.get_data.return_value = data
@@ -81,23 +97,38 @@ class TestSignalGenerator:
         assert valid is True
 
     @pytest.mark.asyncio
-    async def test_check_short_entry_valid_signal(self, mock_suite, sample_ohlcv_data):
+    async def test_check_short_entry_valid_signal(self, mock_suite):
         """Test short entry with valid signal conditions."""
-        from project_x_py.indicators import RSI, WAE
-
-        # Prepare data with indicators
-        data = sample_ohlcv_data.pipe(RSI, period=14).pipe(WAE, sensitivity=150)
+        # Create larger dataset
+        data = pl.DataFrame({
+            "timestamp": pl.datetime_range(
+                start=pl.datetime(2024, 1, 1, 9, 0),
+                end=pl.datetime(2024, 1, 1, 9, 30),
+                interval="15s",
+                eager=True
+            ),
+            "open": [5010.0 - i * 0.1 for i in range(121)],
+            "high": [5012.0 - i * 0.1 for i in range(121)],
+            "low": [5009.0 - i * 0.1 for i in range(121)],
+            "close": [5011.0 - i * 0.1 for i in range(121)],
+            "volume": [100 + i for i in range(121)]
+        })
 
         # Mock bearish pattern check
         generator = SignalGenerator(mock_suite)
         generator._check_bearish_pattern = AsyncMock(return_value=True)
 
         # Set up bearish conditions
+        rsi_values = [65.0] * 100 + [75.0] * 19 + [55.0, 55.0]  # Cross from overbought (121 total)
+        wae_explosion = [0.0] * 119 + [200.0, 200.0]  # Strong explosion
+        wae_trend = [0.0] * 119 + [-1.0, -1.0]  # Negative trend
+        wae_deadzone = [100.0] * 121  # Deadzone threshold
+        
         data = data.with_columns([
-            pl.Series("RSI_14", [75.0] * (len(data) - 2) + [72.0, 55.0]),  # Cross from overbought
-            pl.Series("WAE_explosion", [0.0] * (len(data) - 1) + [200.0]),  # Strong explosion
-            pl.Series("WAE_trend", [0.0] * (len(data) - 1) + [-1.0]),  # Negative trend
-            pl.Series("WAE_deadzone", [0.0] * (len(data) - 1) + [100.0])  # Below explosion
+            pl.Series("RSI_14", rsi_values[:len(data)]),
+            pl.Series("WAE_explosion", wae_explosion[:len(data)]),
+            pl.Series("WAE_trend", wae_trend[:len(data)]),
+            pl.Series("WAE_deadzone", wae_deadzone[:len(data)])
         ])
 
         mock_suite.data.get_data.return_value = data
@@ -111,10 +142,7 @@ class TestSignalGenerator:
     @pytest.mark.asyncio
     async def test_check_bullish_pattern(self, mock_suite):
         """Test bullish pattern detection."""
-        import polars as pl
-        from project_x_py.indicators import FVG, ORDERBLOCK
-        
-        # Create 5-minute data with required columns
+        # Create 5-minute data with required columns  
         data_5m = pl.DataFrame({
             "timestamp": pl.datetime_range(
                 start=pl.datetime(2024, 1, 1, 9, 0),
@@ -151,8 +179,6 @@ class TestSignalGenerator:
     @pytest.mark.asyncio
     async def test_check_bearish_pattern(self, mock_suite):
         """Test bearish pattern detection."""
-        import polars as pl
-        
         # Create 5-minute data with required columns  
         data_5m = pl.DataFrame({
             "timestamp": pl.datetime_range(
@@ -188,14 +214,24 @@ class TestSignalGenerator:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_get_microstructure_score(self, mock_suite, sample_ohlcv_data):
+    async def test_get_microstructure_score(self, mock_suite):
         """Test microstructure score calculation."""
-        from project_x_py.indicators import RSI, WAE
+        # Create larger dataset
+        data = pl.DataFrame({
+            "timestamp": pl.datetime_range(
+                start=pl.datetime(2024, 1, 1, 9, 0),
+                end=pl.datetime(2024, 1, 1, 9, 30),
+                interval="15s",
+                eager=True
+            ),
+            "open": [5000.0 + i * 0.1 for i in range(121)],
+            "high": [5002.0 + i * 0.1 for i in range(121)],
+            "low": [4999.0 + i * 0.1 for i in range(121)],
+            "close": [5001.0 + i * 0.1 for i in range(121)],
+            "volume": [100 + i for i in range(121)]
+        })
 
-        # Prepare data with indicators
-        data = sample_ohlcv_data.pipe(RSI, period=14).pipe(WAE, sensitivity=150)
-
-        # Add specific RSI and WAE values
+        # Add RSI and WAE columns manually
         data = data.with_columns([
             pl.Series("RSI_14", list(range(30, 30 + len(data)))),
             pl.Series("WAE_explosion", [150.0] * len(data))
@@ -210,11 +246,31 @@ class TestSignalGenerator:
         assert score >= 0.0
 
     @pytest.mark.asyncio
-    async def test_signal_details_structure(self, mock_suite, sample_ohlcv_data):
+    async def test_signal_details_structure(self, mock_suite):
         """Test that signal details have correct structure."""
-        from project_x_py.indicators import RSI, WAE
+        # Create larger dataset
+        data = pl.DataFrame({
+            "timestamp": pl.datetime_range(
+                start=pl.datetime(2024, 1, 1, 9, 0),
+                end=pl.datetime(2024, 1, 1, 9, 30),
+                interval="15s",
+                eager=True
+            ),
+            "open": [5000.0 + i * 0.1 for i in range(121)],
+            "high": [5002.0 + i * 0.1 for i in range(121)],
+            "low": [4999.0 + i * 0.1 for i in range(121)],
+            "close": [5001.0 + i * 0.1 for i in range(121)],
+            "volume": [100 + i for i in range(121)]
+        })
 
-        data = sample_ohlcv_data.pipe(RSI, period=14).pipe(WAE, sensitivity=150)
+        # Add required indicator columns
+        data = data.with_columns([
+            pl.Series("RSI_14", [50.0] * len(data)),
+            pl.Series("WAE_explosion", [100.0] * len(data)),
+            pl.Series("WAE_trend", [0.0] * len(data)),
+            pl.Series("WAE_deadzone", [150.0] * len(data))
+        ])
+
         mock_suite.data.get_data.return_value = data
 
         generator = SignalGenerator(mock_suite)

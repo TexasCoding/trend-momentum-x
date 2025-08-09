@@ -153,7 +153,13 @@ class TestTrendMomentumXIntegration:
             assert call_args["take_profit_price"] == 5010.0
 
             # Verify position added to risk manager
-            assert strategy.risk_manager.add_position.called
+            # Since add_position is a regular method, mock it
+            strategy.risk_manager.add_position = Mock()
+            
+            # Call enter_trade again with the mocked method
+            await strategy.enter_trade("long")
+            
+            strategy.risk_manager.add_position.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_on_position_update_closed(self, mock_suite):
