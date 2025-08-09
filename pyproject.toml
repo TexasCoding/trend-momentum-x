@@ -5,7 +5,7 @@ description = "Multi-timeframe trend-aligned momentum breakout strategy for futu
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "project-x-py[all]>=3.0.2",
+    "project-x-py[all]>=3.1.0",
     "polars>=0.20.0",
     "python-dotenv>=1.0.0",
 ]
