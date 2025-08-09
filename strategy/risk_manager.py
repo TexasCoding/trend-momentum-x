@@ -4,18 +4,22 @@ from typing import Any
 from project_x_py import TradingSuite
 from project_x_py.indicators import ATR
 
+from utils import Config
+
 
 class RiskManager:
     def __init__(self, suite: TradingSuite):
         self.suite = suite
-        self.risk_per_trade = 0.005  # 0.5% per trade
-        self.max_daily_loss = 0.03  # 3% daily loss limit
-        self.max_weekly_loss = 0.05  # 5% weekly loss limit
-        self.rr_ratio = 2  # Risk:Reward ratio
-        self.max_concurrent_trades = 3
-        self.correlation_threshold = 0.8
-        self.atr_period = 14
-        self.stop_ticks = 10  # Default stop in ticks
+        self.risk_per_trade = Config.RISK_PER_TRADE
+        self.max_daily_loss = Config.MAX_DAILY_LOSS
+        self.max_weekly_loss = Config.MAX_WEEKLY_LOSS
+        self.rr_ratio = Config.RR_RATIO
+        self.max_concurrent_trades = Config.MAX_CONCURRENT_TRADES
+        self.correlation_threshold = Config.CORRELATION_THRESHOLD
+        # NOTE: Using RSI_PERIOD for ATR as specific config is missing
+        self.atr_period = Config.RSI_PERIOD
+        # NOTE: Not in Config, using hardcoded value
+        self.stop_ticks = 10
         self.daily_pnl = 0.0
         self.weekly_pnl = 0.0
         self.open_positions: list[dict[str, Any]] = []
@@ -79,7 +83,7 @@ class RiskManager:
                 else:
                     stop_price = entry_price + stop_distance
 
-        return stop_price
+        return float(stop_price)
 
     def calculate_target_price(self, entry_price: float, stop_price: float, direction: str) -> float:
         stop_distance = abs(entry_price - stop_price)
@@ -105,8 +109,8 @@ class RiskManager:
         return True, "Trading allowed"
 
     def update_pnl(self, pnl: float):
-        self.daily_pnl = float(self.daily_pnl + pnl)
-        self.weekly_pnl = float(self.weekly_pnl + pnl)
+        self.daily_pnl += float(pnl)
+        self.weekly_pnl += float(pnl)
 
     def reset_daily_pnl(self):
         self.daily_pnl = 0

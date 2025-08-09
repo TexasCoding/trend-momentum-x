@@ -1,6 +1,6 @@
 """Unit tests for the signals module."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import polars as pl
 import pytest
@@ -69,32 +69,33 @@ class TestSignalGenerator:
 
         # Mock bullish pattern check
         generator = SignalGenerator(mock_suite)
-        generator._check_bullish_pattern = AsyncMock(return_value=True)
+        with patch.object(generator, '_check_bullish_pattern', new_callable=AsyncMock) as mock_pattern:
+            mock_pattern.return_value = True
 
-        # Set up bullish conditions - manually add indicator columns
-        # The last 20 rows will be used by the strategy
-        rsi_values = [35.0] * 100 + [25.0] * 19 + [45.0, 45.0]  # Cross from oversold (121 total)
-        wae_explosion = [0.0] * 119 + [200.0, 200.0]  # Strong explosion
-        wae_trend = [0.0] * 119 + [1.0, 1.0]  # Positive trend
-        wae_deadzone = [100.0] * 121  # Deadzone threshold
-        
-        data = data.with_columns([
-            pl.Series("RSI_14", rsi_values[:len(data)]),
-            pl.Series("WAE_explosion", wae_explosion[:len(data)]),
-            pl.Series("WAE_trend", wae_trend[:len(data)]),
-            pl.Series("WAE_deadzone", wae_deadzone[:len(data)])
-        ])
+            # Set up bullish conditions - manually add indicator columns
+            # The last 20 rows will be used by the strategy
+            rsi_values = [35.0] * 100 + [25.0] * 19 + [45.0, 45.0]  # Cross from oversold (121 total)
+            wae_explosion = [0.0] * 119 + [200.0, 200.0]  # Strong explosion
+            wae_trend = [0.0] * 119 + [1.0, 1.0]  # Positive trend
+            wae_deadzone = [100.0] * 121  # Deadzone threshold
+            
+            data = data.with_columns([
+                pl.Series("RSI_14", rsi_values[:len(data)]),
+                pl.Series("WAE_explosion", wae_explosion[:len(data)]),
+                pl.Series("WAE_trend", wae_trend[:len(data)]),
+                pl.Series("WAE_deadzone", wae_deadzone[:len(data)])
+            ])
 
-        mock_suite.data.get_data.return_value = data
+            mock_suite.data.get_data.return_value = data
 
-        valid, signals = await generator.check_long_entry()
+            valid, signals = await generator.check_long_entry()
 
-        # Check individual signal components
-        assert signals["rsi_cross"] is True
-        assert signals["wae_explosion"] is True
-        assert signals["price_break"] is True
-        assert signals["pattern_edge"] is True
-        assert valid is True
+            # Check individual signal components
+            assert signals["rsi_cross"] is True
+            assert signals["wae_explosion"] is True
+            assert signals["price_break"] is True
+            assert signals["pattern_edge"] is True
+            assert valid is True
 
     @pytest.mark.asyncio
     async def test_check_short_entry_valid_signal(self, mock_suite):
@@ -116,28 +117,29 @@ class TestSignalGenerator:
 
         # Mock bearish pattern check
         generator = SignalGenerator(mock_suite)
-        generator._check_bearish_pattern = AsyncMock(return_value=True)
+        with patch.object(generator, '_check_bearish_pattern', new_callable=AsyncMock) as mock_pattern:
+            mock_pattern.return_value = True
 
-        # Set up bearish conditions
-        rsi_values = [65.0] * 100 + [75.0] * 19 + [55.0, 55.0]  # Cross from overbought (121 total)
-        wae_explosion = [0.0] * 119 + [200.0, 200.0]  # Strong explosion
-        wae_trend = [0.0] * 119 + [-1.0, -1.0]  # Negative trend
-        wae_deadzone = [100.0] * 121  # Deadzone threshold
-        
-        data = data.with_columns([
-            pl.Series("RSI_14", rsi_values[:len(data)]),
-            pl.Series("WAE_explosion", wae_explosion[:len(data)]),
-            pl.Series("WAE_trend", wae_trend[:len(data)]),
-            pl.Series("WAE_deadzone", wae_deadzone[:len(data)])
-        ])
+            # Set up bearish conditions
+            rsi_values = [65.0] * 100 + [75.0] * 19 + [55.0, 55.0]  # Cross from overbought (121 total)
+            wae_explosion = [0.0] * 119 + [200.0, 200.0]  # Strong explosion
+            wae_trend = [0.0] * 119 + [-1.0, -1.0]  # Negative trend
+            wae_deadzone = [100.0] * 121  # Deadzone threshold
+            
+            data = data.with_columns([
+                pl.Series("RSI_14", rsi_values[:len(data)]),
+                pl.Series("WAE_explosion", wae_explosion[:len(data)]),
+                pl.Series("WAE_trend", wae_trend[:len(data)]),
+                pl.Series("WAE_deadzone", wae_deadzone[:len(data)])
+            ])
 
-        mock_suite.data.get_data.return_value = data
+            mock_suite.data.get_data.return_value = data
 
-        valid, signals = await generator.check_short_entry()
+            valid, signals = await generator.check_short_entry()
 
-        assert signals["rsi_cross"] is True
-        assert signals["wae_explosion"] is True
-        assert valid is True
+            assert signals["rsi_cross"] is True
+            assert signals["wae_explosion"] is True
+            assert valid is True
 
     @pytest.mark.asyncio
     async def test_check_bullish_pattern(self, mock_suite):
@@ -274,13 +276,14 @@ class TestSignalGenerator:
         mock_suite.data.get_data.return_value = data
 
         generator = SignalGenerator(mock_suite)
-        generator._check_bullish_pattern = AsyncMock(return_value=False)
+        with patch.object(generator, '_check_bullish_pattern', new_callable=AsyncMock) as mock_pattern:
+            mock_pattern.return_value = False
 
-        _, signals = await generator.check_long_entry()
+            _, signals = await generator.check_long_entry()
 
-        assert "details" in signals
-        assert "rsi" in signals["details"]
-        assert "wae" in signals["details"]
-        assert "price" in signals["details"]
-        assert "prev" in signals["details"]["rsi"]
-        assert "current" in signals["details"]["rsi"]
+            assert "details" in signals
+            assert "rsi" in signals["details"]
+            assert "wae" in signals["details"]
+            assert "price" in signals["details"]
+            assert "prev" in signals["details"]["rsi"]
+            assert "current" in signals["details"]["rsi"]

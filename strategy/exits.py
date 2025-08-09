@@ -5,16 +5,17 @@ from typing import Any
 from project_x_py import TradingSuite
 from project_x_py.indicators import SAR
 
+from utils import Config
+
 
 class ExitManager:
     def __init__(self, suite: TradingSuite):
         self.suite = suite
-        self.time_exit_minutes = 5
-        self.breakeven_trigger_ratio = 1.0
-        self.breakeven_offset_ticks = 5
-        self.sar_af = 0.02
-        self.sar_max_af = 0.2
-        self.sar_step = 0.02  # Add missing sar_step attribute
+        self.time_exit_minutes = Config.TIME_EXIT_MINUTES
+        self.breakeven_trigger_ratio = Config.BREAKEVEN_TRIGGER_RATIO
+        self.breakeven_offset_ticks = Config.BREAKEVEN_OFFSET_TICKS
+        self.sar_af = Config.SAR_AF
+        self.sar_max_af = Config.SAR_MAX_AF
         self.trailing_enabled = True
         self.active_positions: dict[str, dict[str, Any]] = {}
 
@@ -172,12 +173,12 @@ class ExitManager:
         if not position:
             return
 
-        data_15s = await self.suite.data.get_data("15s")
+        data_15s = await self.suite.data.get_data("15sec")
         if data_15s is None or len(data_15s) < 10:
             return
 
-        # SAR indicator - uses default parameters
-        data_15s = data_15s.pipe(SAR)
+        # SAR indicator - uses configured parameters
+        data_15s = data_15s.pipe(SAR, acceleration=self.sar_af, maximum=self.sar_max_af)
         current_sar = data_15s.tail(1)["SAR"][0]
 
         current_price = await self.suite.data.get_current_price()

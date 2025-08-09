@@ -1,10 +1,14 @@
 import os
 from typing import Any
 
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path=".env")
+
 
 class Config:
     INSTRUMENT = os.getenv("TRADING_INSTRUMENT", "ES")
-    TIMEFRAMES = ["15s", "1min", "5min", "15min"]
+    TIMEFRAMES = ["15sec", "1min", "5min", "15min"]
 
     RISK_PER_TRADE = float(os.getenv("RISK_PER_TRADE", "0.005"))
     RR_RATIO = float(os.getenv("RR_RATIO", "2"))
@@ -44,10 +48,7 @@ class Config:
 
     @classmethod
     def get_trading_suite_config(cls) -> dict[str, Any]:
-        return {
-            "features": ["orderbook", "risk_manager"],
-            "timeframes": cls.TIMEFRAMES
-        }
+        return {"features": ["orderbook", "risk_manager"], "timeframes": cls.TIMEFRAMES}
 
     @classmethod
     def get_all_settings(cls) -> dict[str, Any]:
@@ -59,13 +60,13 @@ class Config:
                 "rr_ratio": cls.RR_RATIO,
                 "max_daily_loss": cls.MAX_DAILY_LOSS,
                 "max_weekly_loss": cls.MAX_WEEKLY_LOSS,
-                "max_concurrent": cls.MAX_CONCURRENT_TRADES
+                "max_concurrent": cls.MAX_CONCURRENT_TRADES,
             },
             "filters": {
                 "volume_threshold": cls.VOLUME_THRESHOLD_PERCENT,
                 "imbalance_long": cls.IMBALANCE_LONG_THRESHOLD,
                 "imbalance_short": cls.IMBALANCE_SHORT_THRESHOLD,
-                "iceberg_check": cls.ICEBERG_CHECK
+                "iceberg_check": cls.ICEBERG_CHECK,
             },
             "indicators": {
                 "ema": {"fast": cls.EMA_FAST, "slow": cls.EMA_SLOW},
@@ -73,15 +74,15 @@ class Config:
                 "rsi": {
                     "period": cls.RSI_PERIOD,
                     "oversold": cls.RSI_OVERSOLD,
-                    "overbought": cls.RSI_OVERBOUGHT
+                    "overbought": cls.RSI_OVERBOUGHT,
                 },
                 "wae": {"sensitivity": cls.WAE_SENSITIVITY},
-                "sar": {"af": cls.SAR_AF, "max_af": cls.SAR_MAX_AF}
+                "sar": {"af": cls.SAR_AF, "max_af": cls.SAR_MAX_AF},
             },
             "exits": {
                 "time_minutes": cls.TIME_EXIT_MINUTES,
                 "breakeven_trigger": cls.BREAKEVEN_TRIGGER_RATIO,
-                "breakeven_offset_ticks": cls.BREAKEVEN_OFFSET_TICKS
+                "breakeven_offset_ticks": cls.BREAKEVEN_OFFSET_TICKS,
             },
-            "mode": cls.TRADING_MODE
+            "mode": cls.TRADING_MODE,
         }

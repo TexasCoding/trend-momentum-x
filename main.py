@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from project_x_py import TradingSuite
+from project_x_py.event_bus import Event, EventType
 
 from strategy import ExitManager, OrderBookAnalyzer, RiskManager, SignalGenerator, TrendAnalyzer
 from utils import Config, setup_logger
@@ -31,7 +32,9 @@ class TrendMomentumXStrategy:
 
         try:
             self.suite = await TradingSuite.create(
-                Config.INSTRUMENT, **Config.get_trading_suite_config()
+                instrument=Config.INSTRUMENT,
+                timeframes=Config.TIMEFRAMES,
+                features=["orderbook"],  # Enable orderbook feature
             )
 
             self.trend_analyzer = TrendAnalyzer(self.suite)
@@ -41,9 +44,9 @@ class TrendMomentumXStrategy:
             self.exit_manager = ExitManager(self.suite)
 
             # Subscribe to events using the EventBus
-            if hasattr(self.suite, "event_bus"):
-                await self.suite.events.on("new_bar", self.on_new_bar)
-                await self.suite.events.on("position_update", self.on_position_update)
+            if hasattr(self.suite, "events") and self.suite.events:
+                await self.suite.events.on(EventType.NEW_BAR, self.on_new_bar)
+                await self.suite.events.on(EventType.POSITION_UPDATED, self.on_position_update)
                 self.logger.info("Event subscriptions registered")
             else:
                 self.logger.warning("EventBus not found, cannot subscribe to events")
@@ -55,13 +58,17 @@ class TrendMomentumXStrategy:
             self.logger.error(f"Failed to initialize strategy: {e}")
             raise
 
-    async def on_new_bar(self, event_data):
-        _ = event_data  # Event data may be used in future implementations
+    async def on_new_bar(self, event: Event):
+        event_data = event.data if hasattr(event, "data") else event
         if not self.running:
             return
+        # Only process signals on the primary timeframe (15sec)
+        if isinstance(event_data, dict) and event_data.get("timeframe") != "15sec":
+            # Update 1-minute volume average on 1-minute bars
+            if event_data.get("timeframe") == "1min":
+                await self.update_volume_average()
+            return
 
-        # Process all timeframes since we get all bar updates
-        await self.update_volume_average()
         await self.process_trading_signal()
 
     async def update_volume_average(self):
@@ -111,7 +118,7 @@ class TrendMomentumXStrategy:
         try:
             if not self.suite:
                 return False
-            data_15s = await self.suite.data.get_data("15s", bars=1)
+            data_15s = await self.suite.data.get_data("15sec", bars=1)
             if data_15s is None or len(data_15s) == 0:
                 return False
 
@@ -254,10 +261,16 @@ class TrendMomentumXStrategy:
         except Exception as e:
             self.logger.error(f"Error entering trade: {e}")
 
-    async def on_position_update(self, event):
-        position_id = event.get("position_id")
-        status = event.get("status")
-        pnl = event.get("pnl", 0)
+    async def on_position_update(self, event: Event):
+        event_data = event.data if hasattr(event, "data") else event
+        if isinstance(event_data, dict):
+            position_id = event_data.get("position_id")
+            status = event_data.get("status")
+            pnl = event_data.get("pnl", 0)
+        else:
+            position_id = None
+            status = None
+            pnl = 0
 
         # Update pending order status
         if position_id in self.pending_orders:
@@ -267,15 +280,15 @@ class TrendMomentumXStrategy:
             elif status == "cancelled" or status == "rejected":
                 # Remove from tracking if order failed
                 del self.pending_orders[position_id]
-                if self.risk_manager:
-                    self.risk_manager.remove_position(position_id)
+                if self.risk_manager and position_id:
+                    self.risk_manager.remove_position(str(position_id))
                 self.logger.warning(f"Order {position_id} {status}")
 
         if status == "closed":
             if position_id in self.pending_orders:
                 del self.pending_orders[position_id]
-            if self.risk_manager:
-                self.risk_manager.remove_position(position_id)
+            if self.risk_manager and position_id:
+                self.risk_manager.remove_position(str(position_id))
                 self.risk_manager.update_pnl(pnl)
             self.logger.info(f"Position {position_id} closed with P&L: {pnl:.2f}")
 

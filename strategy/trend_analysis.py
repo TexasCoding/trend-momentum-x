@@ -4,18 +4,20 @@ import polars as pl
 from project_x_py import TradingSuite
 from project_x_py.indicators import EMA, MACD, WAE
 
+from utils import Config
+
 TrendState = Literal["bullish", "bearish", "neutral"]
 TradeMode = Literal["long_only", "short_only", "no_trade"]
 
 class TrendAnalyzer:
     def __init__(self, suite: TradingSuite):
         self.suite = suite
-        self.ema_fast = 50
-        self.ema_slow = 200
-        self.macd_fast = 12
-        self.macd_slow = 26
-        self.macd_signal = 9
-        self.wae_sensitivity = 150
+        self.ema_fast = Config.EMA_FAST
+        self.ema_slow = Config.EMA_SLOW
+        self.macd_fast = Config.MACD_FAST
+        self.macd_slow = Config.MACD_SLOW
+        self.macd_signal = Config.MACD_SIGNAL
+        self.wae_sensitivity = Config.WAE_SENSITIVITY
 
     async def get_15min_trend(self) -> TrendState:
         data = await self.suite.data.get_data("15min", bars=200)

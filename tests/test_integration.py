@@ -2,6 +2,7 @@
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from project_x_py.event_bus import Event, EventType
 
 import pytest
 
@@ -82,31 +83,23 @@ class TestTrendMomentumXIntegration:
             # Set up conditions for long entry
             strategy.volume_avg_1min = 100.0
 
-            # Mock volume filter to pass
-            strategy.check_volume_filter = AsyncMock(return_value=True)
+            # Use patch context managers for all mocks
+            with patch.object(strategy, 'check_volume_filter', new_callable=AsyncMock) as mock_vol, \
+                 patch.object(strategy.risk_manager, 'can_trade') as mock_can_trade, \
+                 patch.object(strategy.trend_analyzer, 'get_trade_mode', new_callable=AsyncMock) as mock_mode, \
+                 patch.object(strategy.signal_generator, 'check_long_entry', new_callable=AsyncMock) as mock_signal, \
+                 patch.object(strategy.orderbook_analyzer, 'confirm_long_entry', new_callable=AsyncMock) as mock_ob, \
+                 patch.object(strategy, 'enter_trade', new_callable=AsyncMock) as mock_enter:
+                
+                mock_vol.return_value = True
+                mock_can_trade.return_value = (True, "Trading allowed")
+                mock_mode.return_value = "long_only"
+                mock_signal.return_value = (True, {"rsi": 45, "wae": True})
+                mock_ob.return_value = (True, {"imbalance": 1.8})
 
-            # Mock risk manager to allow trading
-            strategy.risk_manager.can_trade = Mock(return_value=(True, "Trading allowed"))
+                await strategy.process_trading_signal()
 
-            # Mock trend analyzer for long only mode
-            strategy.trend_analyzer.get_trade_mode = AsyncMock(return_value="long_only")
-
-            # Mock signal generator to return valid signal
-            strategy.signal_generator.check_long_entry = AsyncMock(
-                return_value=(True, {"rsi": 45, "wae": True})
-            )
-
-            # Mock orderbook confirmation
-            strategy.orderbook_analyzer.confirm_long_entry = AsyncMock(
-                return_value=(True, {"imbalance": 1.8})
-            )
-
-            # Mock enter_trade
-            strategy.enter_trade = AsyncMock()
-
-            await strategy.process_trading_signal()
-
-            strategy.enter_trade.assert_called_with("long")
+                mock_enter.assert_called_with("long")
 
     @pytest.mark.asyncio
     async def test_process_trading_signal_blocked_by_risk(self, mock_suite):
@@ -168,20 +161,21 @@ class TestTrendMomentumXIntegration:
             strategy = TrendMomentumXStrategy()
             await strategy.initialize()
 
-            event = {
+            event_data = {
                 "position_id": "POS123",
                 "status": "closed",
                 "pnl": 250.0
             }
+            event = Event(EventType.POSITION_UPDATED, event_data)
 
-            # Mock risk_manager methods
-            strategy.risk_manager.remove_position = Mock()
-            strategy.risk_manager.update_pnl = Mock()
+            # Mock risk_manager methods using patch
+            with patch.object(strategy.risk_manager, 'remove_position') as mock_remove, \
+                 patch.object(strategy.risk_manager, 'update_pnl') as mock_update:
+                
+                await strategy.on_position_update(event)
 
-            await strategy.on_position_update(event)
-
-            strategy.risk_manager.remove_position.assert_called_with("POS123")
-            strategy.risk_manager.update_pnl.assert_called_with(250.0)
+                mock_remove.assert_called_with("POS123")
+                mock_update.assert_called_with(250.0)
 
     @pytest.mark.asyncio
     async def test_shutdown_closes_positions(self, mock_suite):

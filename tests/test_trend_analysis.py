@@ -1,6 +1,6 @@
 """Unit tests for the trend_analysis module."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from project_x_py.indicators import EMA, MACD
@@ -154,12 +154,15 @@ class TestTrendAnalyzer:
         analyzer = TrendAnalyzer(mock_suite)
 
         # Mock the individual trend methods
-        analyzer.get_15min_trend = AsyncMock(return_value="bullish")
-        analyzer.get_5min_trend = AsyncMock(return_value="bullish")
-        analyzer.get_1min_trend = AsyncMock(return_value="bullish")
+        with patch.object(analyzer, 'get_15min_trend', new_callable=AsyncMock) as mock_15min, \
+             patch.object(analyzer, 'get_5min_trend', new_callable=AsyncMock) as mock_5min, \
+             patch.object(analyzer, 'get_1min_trend', new_callable=AsyncMock) as mock_1min:
+            mock_15min.return_value = "bullish"
+            mock_5min.return_value = "bullish"
+            mock_1min.return_value = "bullish"
 
-        mode = await analyzer.get_trade_mode()
-        assert mode == "long_only"
+            mode = await analyzer.get_trade_mode()
+            assert mode == "long_only"
 
     @pytest.mark.asyncio
     async def test_get_trade_mode_all_bearish(self, mock_suite):
@@ -167,12 +170,15 @@ class TestTrendAnalyzer:
         analyzer = TrendAnalyzer(mock_suite)
 
         # Mock the individual trend methods
-        analyzer.get_15min_trend = AsyncMock(return_value="bearish")
-        analyzer.get_5min_trend = AsyncMock(return_value="bearish")
-        analyzer.get_1min_trend = AsyncMock(return_value="bearish")
+        with patch.object(analyzer, 'get_15min_trend', new_callable=AsyncMock) as mock_15min, \
+             patch.object(analyzer, 'get_5min_trend', new_callable=AsyncMock) as mock_5min, \
+             patch.object(analyzer, 'get_1min_trend', new_callable=AsyncMock) as mock_1min:
+            mock_15min.return_value = "bearish"
+            mock_5min.return_value = "bearish"
+            mock_1min.return_value = "bearish"
 
-        mode = await analyzer.get_trade_mode()
-        assert mode == "short_only"
+            mode = await analyzer.get_trade_mode()
+            assert mode == "short_only"
 
     @pytest.mark.asyncio
     async def test_get_trade_mode_mixed_trends(self, mock_suite):
@@ -180,12 +186,15 @@ class TestTrendAnalyzer:
         analyzer = TrendAnalyzer(mock_suite)
 
         # Mock mixed trend conditions
-        analyzer.get_15min_trend = AsyncMock(return_value="bullish")
-        analyzer.get_5min_trend = AsyncMock(return_value="bearish")
-        analyzer.get_1min_trend = AsyncMock(return_value="neutral")
+        with patch.object(analyzer, 'get_15min_trend', new_callable=AsyncMock) as mock_15min, \
+             patch.object(analyzer, 'get_5min_trend', new_callable=AsyncMock) as mock_5min, \
+             patch.object(analyzer, 'get_1min_trend', new_callable=AsyncMock) as mock_1min:
+            mock_15min.return_value = "bullish"
+            mock_5min.return_value = "bearish"
+            mock_1min.return_value = "neutral"
 
-        mode = await analyzer.get_trade_mode()
-        assert mode == "no_trade"
+            mode = await analyzer.get_trade_mode()
+            assert mode == "no_trade"
 
     @pytest.mark.asyncio
     async def test_get_trade_mode_with_neutral(self, mock_suite):
@@ -193,12 +202,15 @@ class TestTrendAnalyzer:
         analyzer = TrendAnalyzer(mock_suite)
 
         # Mock with one neutral trend
-        analyzer.get_15min_trend = AsyncMock(return_value="bullish")
-        analyzer.get_5min_trend = AsyncMock(return_value="bullish")
-        analyzer.get_1min_trend = AsyncMock(return_value="neutral")
+        with patch.object(analyzer, 'get_15min_trend', new_callable=AsyncMock) as mock_15min, \
+             patch.object(analyzer, 'get_5min_trend', new_callable=AsyncMock) as mock_5min, \
+             patch.object(analyzer, 'get_1min_trend', new_callable=AsyncMock) as mock_1min:
+            mock_15min.return_value = "bullish"
+            mock_5min.return_value = "bullish"
+            mock_1min.return_value = "neutral"
 
-        mode = await analyzer.get_trade_mode()
-        assert mode == "no_trade"
+            mode = await analyzer.get_trade_mode()
+            assert mode == "no_trade"
 
     @pytest.mark.asyncio
     async def test_get_trend_details(self, mock_suite):
@@ -206,13 +218,16 @@ class TestTrendAnalyzer:
         analyzer = TrendAnalyzer(mock_suite)
 
         # Mock the individual trend methods
-        analyzer.get_15min_trend = AsyncMock(return_value="bullish")
-        analyzer.get_5min_trend = AsyncMock(return_value="bullish")
-        analyzer.get_1min_trend = AsyncMock(return_value="bullish")
+        with patch.object(analyzer, 'get_15min_trend', new_callable=AsyncMock) as mock_15min, \
+             patch.object(analyzer, 'get_5min_trend', new_callable=AsyncMock) as mock_5min, \
+             patch.object(analyzer, 'get_1min_trend', new_callable=AsyncMock) as mock_1min:
+            mock_15min.return_value = "bullish"
+            mock_5min.return_value = "bullish"
+            mock_1min.return_value = "bullish"
 
-        details = await analyzer.get_trend_details()
+            details = await analyzer.get_trend_details()
 
-        assert details["15min"] == "bullish"
-        assert details["5min"] == "bullish"
-        assert details["1min"] == "bullish"
-        assert details["trade_mode"] == "long_only"
+            assert details["15min"] == "bullish"
+            assert details["5min"] == "bullish"
+            assert details["1min"] == "bullish"
+            assert details["trade_mode"] == "long_only"
