@@ -52,7 +52,7 @@ class TestTrendAnalyzer:
         except Exception:
             # If MACD fails, create data with the expected column
             data_with_macd = sample_5min_data
-        
+
         # Ensure we have the MACD_histogram column with positive values
         if "MACD_histogram" not in data_with_macd.columns:
             data_with_macd = data_with_macd.with_columns(
@@ -63,7 +63,7 @@ class TestTrendAnalyzer:
             data_with_macd = data_with_macd.with_columns(
                 MACD_histogram=0.5
             )
-        
+
         mock_suite.data.get_data.return_value = data_with_macd
 
         analyzer = TrendAnalyzer(mock_suite)
@@ -81,7 +81,7 @@ class TestTrendAnalyzer:
         except Exception:
             # If MACD fails, create data with the expected column
             data_with_macd = sample_5min_data
-        
+
         # Ensure we have the MACD_histogram column with negative values
         if "MACD_histogram" not in data_with_macd.columns:
             data_with_macd = data_with_macd.with_columns(
@@ -92,7 +92,7 @@ class TestTrendAnalyzer:
             data_with_macd = data_with_macd.with_columns(
                 MACD_histogram=-0.5
             )
-        
+
         mock_suite.data.get_data.return_value = data_with_macd
 
         analyzer = TrendAnalyzer(mock_suite)
@@ -104,7 +104,7 @@ class TestTrendAnalyzer:
     async def test_get_1min_trend_with_wae(self, mock_suite, sample_1min_data):
         """Test 1-minute trend detection with WAE indicator."""
         import polars as pl
-        
+
         # Create a larger dataset for WAE
         larger_data = pl.DataFrame({
             "timestamp": pl.datetime_range(
@@ -119,7 +119,7 @@ class TestTrendAnalyzer:
             "close": [5001.0 + i for i in range(121)],
             "volume": [100 + i * 10 for i in range(121)]
         })
-        
+
         # Try to apply WAE, but if it fails, manually add columns
         try:
             from project_x_py.indicators import WAE
@@ -131,7 +131,7 @@ class TestTrendAnalyzer:
                 pl.lit(1.0).alias("WAE_trend"),
                 pl.lit(100.0).alias("WAE_deadzone")
             ])
-        
+
         # Ensure we have the expected columns
         if "WAE_explosion" not in data_with_wae.columns:
             data_with_wae = data_with_wae.with_columns([
@@ -139,7 +139,7 @@ class TestTrendAnalyzer:
                 pl.lit(1.0).alias("WAE_trend"),
                 pl.lit(100.0).alias("WAE_deadzone")
             ])
-        
+
         mock_suite.data.get_data.return_value = data_with_wae
 
         analyzer = TrendAnalyzer(mock_suite)

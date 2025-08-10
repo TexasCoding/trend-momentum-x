@@ -5,7 +5,7 @@
 ### Source Code Location
 The project-x-py library is installed at:
 - **Main Path**: `.venv/lib/python3.12/site-packages/project_x_py/`
-- **Version Info**: `.venv/lib/python3.12/site-packages/project_x_py-3.1.1.dist-info/`
+- **Version Info**: `.venv/lib/python3.12/site-packages/project_x_py-3.1.3.dist-info/`
 
 ### Official Documentation
 - **Documentation URL**: https://texascoding.github.io/project-x-py/
@@ -17,11 +17,13 @@ The project-x-py library is installed at:
 from project_x_py import TradingSuite
 
 # The TradingSuite is the ONLY entry point to all functionality
+# IMPORTANT: Use 'features' parameter as a list of strings, NOT individual boolean flags
 suite = await TradingSuite.create(
     instrument="ES",
-    orderbook=True,
-    risk_manager=True,
-    data_feeds=["15s", "1min", "5min", "15min"]
+    timeframes=["15sec", "1min", "5min", "15min"],  # Optional, defaults to ["5min"]
+    features=["orderbook", "risk_manager"],  # List of feature strings
+    initial_days=5,  # Days of historical data to load
+    auto_connect=True  # Auto-initialize components
 )
 ```
 
@@ -42,12 +44,11 @@ project_x_py/
 │   └── tradovate.py         # Tradovate-specific implementation
 ├── indicators/                # Technical indicators (ALL optimized for polars)
 │   ├── __init__.py           # Exports all indicators
-│   ├── rsi.py                # RSI indicator
-│   ├── macd.py               # MACD indicator
-│   ├── ema.py                # EMA indicator
-│   ├── atr.py                # ATR indicator
-│   ├── sar.py                # Parabolic SAR
-│   ├── wae.py                # Waddah Attar Explosion
+│   ├── base.py               # Base indicator class
+│   ├── momentum.py           # RSI, MACD, Stochastic
+│   ├── overlap.py            # EMA, SMA, Bollinger Bands
+│   ├── volatility.py         # ATR, SAR
+│   ├── waddah_attar.py       # Waddah Attar Explosion
 │   ├── fvg.py                # Fair Value Gaps
 │   └── order_block.py        # Order Blocks
 ├── order_manager/            # Order management
@@ -56,8 +57,11 @@ project_x_py/
 │   └── operations.py        # Order execution
 ├── orderbook/                # Level 2 data analysis
 │   ├── __init__.py
-│   ├── analyzer.py          # OrderBook analysis
-│   └── types.py             # OrderBook types
+│   ├── base.py              # OrderBookBase class
+│   ├── analytics.py         # Market analytics
+│   ├── detection.py         # Iceberg/cluster detection
+│   ├── profile.py           # Volume profile
+│   └── realtime.py          # Real-time handling
 ├── position_manager/         # Position management
 │   ├── __init__.py
 │   ├── core.py              # Position operations
@@ -65,8 +69,10 @@ project_x_py/
 │   └── tracking.py          # Position tracking
 ├── realtime_data_manager/    # Real-time data handling
 │   ├── __init__.py
-│   ├── manager.py           # Data manager
-│   └── websocket.py         # WebSocket handling
+│   ├── core.py              # RealtimeDataManager class
+│   ├── data_access.py       # Data retrieval methods
+│   ├── data_processing.py   # Data processing
+│   └── callbacks.py         # Callback handling
 ├── risk_manager/             # Risk management
 │   ├── __init__.py
 │   └── manager.py           # Risk calculations
@@ -98,30 +104,54 @@ suite.client         # API client (rarely needed directly)
 
 ### 2. Data Operations (realtime_data_manager/)
 ```python
-# Get historical data - returns polars DataFrame
-data = await suite.data.get_data("15s", bars=100)
+# Get historical data - returns polars DataFrame or None
+data = await suite.data.get_data("15sec", bars=100)
+
+# DataFrame columns:
+# - timestamp: Bar timestamp (timezone-aware datetime)
+# - open: Opening price
+# - high: High price
+# - low: Low price  
+# - close: Close price
+# - volume: Volume
 
 # Get current price
-price = await suite.data.get_current_price()
+price = await suite.data.get_current_price()  # Returns float or None
+
+# Get multi-timeframe data
+mtf_data = await suite.data.get_mtf_data()  # Returns dict[str, pl.DataFrame]
 
 # Subscribe to updates (handled internally)
 # DO NOT manually subscribe - TradingSuite handles this
 ```
 
-### 3. OrderBook Analysis (orderbook/analyzer.py)
+### 3. OrderBook Analysis (orderbook/)
 ```python
 # Market imbalance - returns LiquidityAnalysisResponse
 imbalance = await suite.orderbook.get_market_imbalance(levels=5)
-bid_ask_ratio = imbalance.depth_imbalance
+# Response fields:
+# - depth_imbalance: float (buy/sell pressure ratio)
+# - bid_depth: dict with volume and level count
+# - ask_depth: dict with volume and level count
+# - analysis: str (text description)
 
 # Iceberg detection - returns dict
-icebergs = await suite.orderbook.detect_iceberg_orders()
-iceberg_levels = icebergs.get('iceberg_levels', [])
+icebergs = await suite.orderbook.detect_iceberg_orders(
+    min_refreshes=3,
+    volume_threshold=100,
+    time_window_minutes=30
+)
+# Response: {'iceberg_levels': [...], 'timestamp': ...}
 
 # OrderBook snapshot - returns dict
 snapshot = await suite.orderbook.get_orderbook_snapshot(levels=10)
-bids = snapshot['bids']  # List of (price, size) tuples
-asks = snapshot['asks']  # List of (price, size) tuples
+# Response: {
+#     'bids': [{'price': float, 'size': int}, ...],
+#     'asks': [{'price': float, 'size': int}, ...],
+#     'best_bid': float,
+#     'best_ask': float,
+#     'spread': float
+# }
 ```
 
 ### 4. Order Management (order_manager/)
@@ -155,7 +185,7 @@ from project_x_py.indicators import (
 # Apply using pipe method - ALWAYS use this pattern
 data = (data
     .pipe(RSI, period=14)
-    .pipe(MACD, fast=12, slow=26, signal=9)
+    .pipe(MACD, fast_period=12, slow_period=26, signal_period=9)
     .pipe(EMA, period=50, column_name="EMA_50")
     .pipe(WAE, sensitivity=150)
     .pipe(FVG, min_gap_size=0.001)
@@ -255,14 +285,13 @@ class TrendMomentumXStrategy:
         # Create suite - single entry point
         self.suite = await TradingSuite.create(
             instrument="ES",
-            orderbook=True,
-            risk_manager=True,
-            data_feeds=["15s", "1min", "5min", "15min"]
+            features=["orderbook", "risk_manager"],
+            timeframes=["15sec", "1min", "5min", "15min"]
         )
     
     async def get_signals(self):
         # Get data through suite
-        data = await self.suite.data.get_data("15s", bars=100)
+        data = await self.suite.data.get_data("15sec", bars=100)
         
         # Apply indicators using pipe
         data = (data

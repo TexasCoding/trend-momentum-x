@@ -78,7 +78,7 @@ class TestSignalGenerator:
             wae_explosion = [0.0] * 119 + [200.0, 200.0]  # Strong explosion
             wae_trend = [0.0] * 119 + [1.0, 1.0]  # Positive trend
             wae_deadzone = [100.0] * 121  # Deadzone threshold
-            
+
             data = data.with_columns([
                 pl.Series("RSI_14", rsi_values[:len(data)]),
                 pl.Series("WAE_explosion", wae_explosion[:len(data)]),
@@ -125,7 +125,7 @@ class TestSignalGenerator:
             wae_explosion = [0.0] * 119 + [200.0, 200.0]  # Strong explosion
             wae_trend = [0.0] * 119 + [-1.0, -1.0]  # Negative trend
             wae_deadzone = [100.0] * 121  # Deadzone threshold
-            
+
             data = data.with_columns([
                 pl.Series("RSI_14", rsi_values[:len(data)]),
                 pl.Series("WAE_explosion", wae_explosion[:len(data)]),
@@ -144,7 +144,7 @@ class TestSignalGenerator:
     @pytest.mark.asyncio
     async def test_check_bullish_pattern(self, mock_suite):
         """Test bullish pattern detection."""
-        # Create 5-minute data with required columns  
+        # Create 5-minute data with required columns
         data_5m = pl.DataFrame({
             "timestamp": pl.datetime_range(
                 start=pl.datetime(2024, 1, 1, 9, 0),
@@ -158,7 +158,7 @@ class TestSignalGenerator:
             "close": [5001.0 + i for i in range(5)],
             "volume": [1000 + i * 100 for i in range(5)]
         })
-        
+
         # Apply indicators and mock the results
         data_5m = data_5m.with_columns([
             pl.lit("bullish").alias("ORDERBLOCK_type"),
@@ -181,7 +181,7 @@ class TestSignalGenerator:
     @pytest.mark.asyncio
     async def test_check_bearish_pattern(self, mock_suite):
         """Test bearish pattern detection."""
-        # Create 5-minute data with required columns  
+        # Create 5-minute data with required columns
         data_5m = pl.DataFrame({
             "timestamp": pl.datetime_range(
                 start=pl.datetime(2024, 1, 1, 9, 0),
@@ -195,7 +195,7 @@ class TestSignalGenerator:
             "close": [5001.0 + i for i in range(5)],
             "volume": [1000 + i * 100 for i in range(5)]
         })
-        
+
         # Apply indicators and mock the results
         data_5m = data_5m.with_columns([
             pl.lit("bearish").alias("ORDERBLOCK_type"),

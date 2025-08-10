@@ -950,7 +950,7 @@ wheels = [
 
 [[package]]
 name = "project-x-py"
-version = "3.1.1"
+version = "3.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cachetools" },
@@ -969,9 +969,9 @@ dependencies = [
     { name = "uvloop" },
     { name = "websocket-client" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7a/dc/822091dc576d6c29645ea8065c6c761bc511fb7ea34e2f76e9d2bccbd961/project_x_py-3.1.1.tar.gz", hash = "sha256:5fe7090930d68bd65e723b412f87fe3b4ec012acaeeb97970f85166a48c1b4f1", size = 399497 }
+sdist = { url = "https://files.pythonhosted.org/packages/bc/66/c6d8b6019317f169525715d0c9f90e945bed74b916ef1f06c2887af80fe9/project_x_py-3.1.3.tar.gz", hash = "sha256:3147b4778837cca6ded8f2443b286ba2663ed3fd750cd06408b1e5c8e9eca437", size = 403667 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e6/79/31ded1b698e74dd1a0a7a52b469f05917d9afa51e425d07a7791340e5148/project_x_py-3.1.1-py3-none-any.whl", hash = "sha256:d824b32cd65ce3d81256c870ba85dc38edd31ab154d78fc56ef1d5c27ef1c7d3", size = 342168 },
+    { url = "https://files.pythonhosted.org/packages/4b/02/ae6ede313674dbfd8c61ebf0e480763bb1a8cfd11c279c6786700279f5e2/project_x_py-3.1.3-py3-none-any.whl", hash = "sha256:ee26cf30c318e3fc1d4c4247fd80837b7977c5b0a0dd185bc8d74fc252a1d7d9", size = 346692 },
 ]
 
 [package.optional-dependencies]
@@ -1464,7 +1464,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "polars", specifier = ">=0.20.0" },
-    { name = "project-x-py", extras = ["all"], specifier = ">=3.1.1" },
+    { name = "project-x-py", extras = ["all"], specifier = ">=3.1.3" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
 ]
 

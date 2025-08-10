@@ -100,6 +100,7 @@ class ExitManager:
         data_5m = data_5m.pipe(MACD, fast_period=12, slow_period=26, signal_period=9)
 
         hist_last = data_5m.tail(1)["MACD_hist"][0]
+        print(f"MACD Hist Last: {hist_last}")
 
         return (
             position_direction == "long" and hist_last < -0.01

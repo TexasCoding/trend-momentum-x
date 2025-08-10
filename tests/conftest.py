@@ -20,37 +20,37 @@ def event_loop():
 def mock_suite():
     """Create a mock TradingSuite for testing."""
     suite = MagicMock(spec=TradingSuite)
-    
+
     # Mock data manager
     suite.data = AsyncMock()
     suite.data.get_data = AsyncMock()
     suite.data.get_current_price = AsyncMock(return_value=5000.0)
-    
+
     # Mock orderbook
     suite.orderbook = AsyncMock()
     suite.orderbook.get_market_imbalance = AsyncMock()
     suite.orderbook.detect_iceberg_orders = AsyncMock(return_value={"iceberg_levels": []})
     suite.orderbook.get_orderbook_snapshot = AsyncMock()
-    
+
     # Mock orders
     suite.orders = AsyncMock()
     suite.orders.place_bracket_order = AsyncMock(return_value="ORDER123")
     suite.orders.modify_order = AsyncMock()
     suite.orders.close_position = AsyncMock()
-    
+
     # Mock client
     suite.client = Mock()
     account_info = Mock()
     account_info.balance = 100000
     account_info.margin = 50000
     suite.client.get_account_info = Mock(return_value=account_info)
-    
+
     # Mock instrument
     suite.instrument = Mock()
     suite.instrument.id = "ES"
     suite.instrument.tickSize = 0.25
     suite.instrument.tickValue = 12.50
-    
+
     return suite
 
 

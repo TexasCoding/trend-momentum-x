@@ -1,13 +1,13 @@
 import asyncio
 import signal
-import sys
 from datetime import datetime
 from typing import Any
 
-from project_x_py import TradingSuite
+from project_x_py import Order, TradingSuite
 from project_x_py.event_bus import Event, EventType
+from project_x_py.indicators import ATR
 
-from strategy import ExitManager, OrderBookAnalyzer, RiskManager, SignalGenerator, TrendAnalyzer
+from strategy import ExitManager, OrderBookAnalyzer, SignalGenerator, TrendAnalyzer
 from utils import Config, setup_logger
 
 
@@ -18,13 +18,18 @@ class TrendMomentumXStrategy:
         self.trend_analyzer: TrendAnalyzer | None = None
         self.signal_generator: SignalGenerator | None = None
         self.orderbook_analyzer: OrderBookAnalyzer | None = None
-        self.risk_manager: RiskManager | None = None
         self.exit_manager: ExitManager | None = None
         self.running = False
+        self.stop_event = asyncio.Event()
         self.volume_avg_1min = 0.0
         self.pending_orders: dict[str, dict] = {}  # Track pending orders
         self.last_daily_reset = datetime.now().date()
         self.last_weekly_reset = datetime.now().date()
+
+        # -- Settings moved from custom RiskManager --
+        self.atr_period = Config.RSI_PERIOD  # NOTE: Using RSI_PERIOD for ATR
+        self.stop_ticks = 10  # NOTE: Hardcoded value
+        self.rr_ratio = Config.RR_RATIO
 
     async def initialize(self):
         self.logger.info("Initializing TrendMomentumX Strategy...")
@@ -34,19 +39,21 @@ class TrendMomentumXStrategy:
             self.suite = await TradingSuite.create(
                 instrument=Config.INSTRUMENT,
                 timeframes=Config.TIMEFRAMES,
-                features=["orderbook"],  # Enable orderbook feature
+                features=["orderbook", "risk_manager"],  # Enable orderbook and risk manager
             )
 
             self.trend_analyzer = TrendAnalyzer(self.suite)
             self.signal_generator = SignalGenerator(self.suite)
             self.orderbook_analyzer = OrderBookAnalyzer(self.suite)
-            self.risk_manager = RiskManager(self.suite)
             self.exit_manager = ExitManager(self.suite)
 
             # Subscribe to events using the EventBus
             if hasattr(self.suite, "events") and self.suite.events:
                 await self.suite.events.on(EventType.NEW_BAR, self.on_new_bar)
-                await self.suite.events.on(EventType.POSITION_UPDATED, self.on_position_update)
+                await self.suite.events.on(EventType.ORDER_FILLED, self.on_order_filled)
+                await self.suite.events.on(EventType.ORDER_CANCELLED, self.on_order_failed)
+                await self.suite.events.on(EventType.ORDER_REJECTED, self.on_order_failed)
+                await self.suite.events.on(EventType.POSITION_CLOSED, self.on_position_closed)
                 self.logger.info("Event subscriptions registered")
             else:
                 self.logger.warning("EventBus not found, cannot subscribe to events")
@@ -57,6 +64,46 @@ class TrendMomentumXStrategy:
         except Exception as e:
             self.logger.error(f"Failed to initialize strategy: {e}")
             raise
+
+    # -- Helper methods moved from custom RiskManager --
+    async def _calculate_stop_price(self, entry_price: float, direction: str) -> float:
+        if not self.suite:
+            raise ValueError("TradingSuite not initialized")
+
+        data_1m = await self.suite.data.get_data("1min")
+        if data_1m is not None and len(data_1m) >= self.atr_period:
+            data_1m = data_1m.pipe(ATR, period=self.atr_period)
+            atr_value = data_1m.tail(1)["ATR_14"][0]
+            stop_price = entry_price - atr_value if direction == "long" else entry_price + atr_value
+        else:
+            instrument = self.suite.instrument
+            if instrument and hasattr(instrument, "tickSize"):
+                tick_size = instrument.tickSize
+                stop_distance = self.stop_ticks * tick_size
+                stop_price = (
+                    entry_price - stop_distance
+                    if direction == "long"
+                    else entry_price + stop_distance
+                )
+            else:
+                # Fallback if instrument info is missing
+                stop_distance = entry_price * 0.01
+                stop_price = (
+                    entry_price - stop_distance
+                    if direction == "long"
+                    else entry_price + stop_distance
+                )
+        return float(stop_price)
+
+    def _calculate_target_price(
+        self, entry_price: float, stop_price: float, direction: str
+    ) -> float:
+        stop_distance = abs(entry_price - stop_price)
+        target_distance = stop_distance * self.rr_ratio
+        target_price = (
+            entry_price + target_distance if direction == "long" else entry_price - target_distance
+        )
+        return target_price
 
     async def on_new_bar(self, event: Event):
         event_data = event.data if hasattr(event, "data") else event
@@ -88,15 +135,10 @@ class TrendMomentumXStrategy:
             self.logger.error(f"Error updating volume average: {e}")
 
     async def process_trading_signal(self):
+        # The managed_trade context will handle pre-trade risk checks.
+        # If risk limits (e.g., max daily loss) are hit, it will raise an exception.
         try:
             if not await self.check_volume_filter():
-                return
-
-            if not self.risk_manager:
-                return
-            can_trade, reason = self.risk_manager.can_trade()
-            if not can_trade:
-                self.logger.debug(f"Trading not allowed: {reason}")
                 return
 
             if not self.trend_analyzer:
@@ -112,7 +154,8 @@ class TrendMomentumXStrategy:
                 await self.check_short_entry()
 
         except Exception as e:
-            self.logger.error(f"Error processing trading signal: {e}")
+            # Catch exceptions from managed_trade if risk limits are violated
+            self.logger.warning(f"Could not process trade signal: {e}")
 
     async def check_volume_filter(self) -> bool:
         try:
@@ -177,154 +220,108 @@ class TrendMomentumXStrategy:
         await self.enter_trade("short")
 
     async def enter_trade(self, direction: str):
+        if not self.suite:
+            self.logger.error("TradingSuite not available.")
+            return
+
         try:
-            if not self.suite:
-                return
             current_price = await self.suite.data.get_current_price()
             if not current_price:
-                self.logger.error("Unable to get current price")
+                self.logger.error("Unable to get current price for trade entry.")
                 return
 
-            # Calculate slippage based on instrument tick size
-            slippage_ticks = 2  # Conservative 2 tick slippage
-            if self.suite.instrument and hasattr(self.suite.instrument, "tickSize"):
-                tick_size = self.suite.instrument.tickSize
-                slippage = slippage_ticks * tick_size
-
-                # Adjust entry price for expected slippage
-                if direction == "long":
-                    entry_price = current_price + slippage
-                else:
-                    entry_price = current_price - slippage
-            else:
-                entry_price = current_price
-
-            if not self.risk_manager:
-                return
-            stop_price = await self.risk_manager.calculate_stop_price(entry_price, direction)
-            target_price = self.risk_manager.calculate_target_price(
-                entry_price, stop_price, direction
-            )
-
-            position_size = await self.risk_manager.calculate_position_size(entry_price, stop_price)
-
-            if not position_size or position_size <= 0:
-                self.logger.error("Invalid position size calculated")
-                return
-
-            side = 0 if direction == "long" else 1
+            # 1. Calculate Stop and Target using our strategy's logic
+            stop_price = await self._calculate_stop_price(current_price, direction)
+            target_price = self._calculate_target_price(current_price, stop_price, direction)
 
             self.logger.info(
-                f"Placing {direction} order: "
-                f"Size={position_size}, Entry={entry_price:.2f}, "
-                f"Stop={stop_price:.2f}, Target={target_price:.2f}"
+                f"Attempting to enter {direction} trade. "
+                f"Entry ~{current_price:.2f}, Stop={stop_price:.2f}, Target={target_price:.2f}"
             )
 
-            if not self.suite:
-                return
-            response = await self.suite.orders.place_bracket_order(
-                contract_id=str(self.suite.instrument.id) if self.suite.instrument else "0",
-                side=side,
-                size=position_size,
-                entry_price=entry_price,
-                stop_loss_price=stop_price,
-                take_profit_price=target_price,
-            )
+            # 2. Use the managed_trade context for execution
+            # It handles position sizing, risk checks, and order placement.
+            async with self.suite.managed_trade() as trade:
+                if direction == "long":
+                    result = await trade.enter_long(stop_loss=stop_price, take_profit=target_price)
+                else:
+                    result = await trade.enter_short(stop_loss=stop_price, take_profit=target_price)
 
-            if response:
-                order_id = str(response) if response else None
-                position = {
-                    "id": order_id,
-                    "direction": direction,
-                    "entry_price": entry_price,
-                    "stop_price": stop_price,
-                    "target_price": target_price,
-                    "size": position_size,
-                    "status": "pending",
-                    "created_at": datetime.now(),
-                }
-
-                # Track pending order
-                if order_id:
-                    self.pending_orders[order_id] = position
-
-                if self.risk_manager:
-                    self.risk_manager.add_position(position)
-
-                if self.exit_manager:
-                    asyncio.create_task(self.exit_manager.manage_position(position))
-
-                self.logger.info(f"Order placed successfully: {response}")
-            else:
-                self.logger.error(f"Failed to place order: {response}")
+                entry_order: Order | None = result.get("entry_order")
+                if entry_order and entry_order.id:
+                    entry_order_id = str(entry_order.id)
+                    self.logger.info(
+                        f"Managed trade submitted successfully. Entry Order ID: {entry_order_id}"
+                    )
+                    # Optional: Track the pending order if needed for other logic
+                    self.pending_orders[entry_order_id] = {
+                        "id": entry_order_id,
+                        "direction": direction,
+                        "entry_price": current_price,
+                        "stop_price": stop_price,
+                        "target_price": target_price,
+                        "status": "pending",
+                        "created_at": datetime.now(),
+                    }
+                else:
+                    self.logger.error(f"Managed trade failed to execute: {result}")
 
         except Exception as e:
-            self.logger.error(f"Error entering trade: {e}")
+            self.logger.error(f"Error entering managed trade: {e}", exc_info=True)
 
-    async def on_position_update(self, event: Event):
-        event_data = event.data if hasattr(event, "data") else event
-        if isinstance(event_data, dict):
-            position_id = event_data.get("position_id")
-            status = event_data.get("status")
-            pnl = event_data.get("pnl", 0)
+    async def on_order_filled(self, event: Event):
+        order: Order = event.data
+        order_id = str(order.id)
+
+        if order_id in self.pending_orders:
+            self.pending_orders[order_id]["status"] = "active"
+            self.logger.info(f"Entry order {order_id} filled at {order.filledPrice}")
         else:
-            position_id = None
-            status = None
-            pnl = 0
+            # This could be a stop-loss or take-profit fill
+            self.logger.info(
+                f"Order {order_id} filled (likely SL/TP). Position will be closed by ExitManager."
+            )
 
-        # Update pending order status
-        if position_id in self.pending_orders:
-            if status == "filled":
-                self.pending_orders[position_id]["status"] = "active"
-                self.logger.info(f"Order {position_id} filled")
-            elif status == "cancelled" or status == "rejected":
-                # Remove from tracking if order failed
-                del self.pending_orders[position_id]
-                if self.risk_manager and position_id:
-                    self.risk_manager.remove_position(str(position_id))
-                self.logger.warning(f"Order {position_id} {status}")
+    async def on_order_failed(self, event: Event):
+        order: Order = event.data
+        order_id = str(order.id)
+        event_name = event.type.name if isinstance(event.type, EventType) else str(event.type)
 
-        if status == "closed":
-            if position_id in self.pending_orders:
-                del self.pending_orders[position_id]
-            if self.risk_manager and position_id:
-                self.risk_manager.remove_position(str(position_id))
-                self.risk_manager.update_pnl(pnl)
-            self.logger.info(f"Position {position_id} closed with P&L: {pnl:.2f}")
+        if order_id in self.pending_orders:
+            self.logger.warning(f"Entry order {order_id} failed with status: {event_name}")
+            # The managed_trade context handles its own state, but we can remove from our pending tracker.
+            del self.pending_orders[order_id]
+
+    async def on_position_closed(self, event: Event):
+        # This event is fired by the library's PositionManager.
+        # The data contains the final trade details, including P&L.
+        closed_position_data = event.data
+        pnl = closed_position_data.get("profitAndLoss", 0.0)
+        position_id = str(closed_position_data.get("positionId"))
+
+        self.logger.info(f"Position {position_id} closed with P&L: {pnl:.2f}")
+        # The library's risk manager automatically tracks P&L. No manual update needed.
 
     async def run(self):
         await self.initialize()
+        self.running = True
 
         self.logger.info(f"Strategy running in {Config.TRADING_MODE} mode")
         self.logger.info("Press Ctrl+C to stop")
 
         try:
-            while self.running:
-                await asyncio.sleep(1)
-
-                # Check for daily reset (once per day at midnight)
-                current_date = datetime.now().date()
-                if current_date > self.last_daily_reset:
-                    if self.risk_manager:
-                        self.risk_manager.reset_daily_pnl()
-                    self.logger.info("Daily P&L reset")
-                    self.last_daily_reset = current_date
-
-                # Check for weekly reset (Monday at midnight)
-                if current_date.weekday() == 0 and current_date > self.last_weekly_reset:
-                    if self.risk_manager:
-                        self.risk_manager.reset_weekly_pnl()
-                    self.logger.info("Weekly P&L reset")
-                    self.last_weekly_reset = current_date
-
+            await self.stop_event.wait()
         except asyncio.CancelledError:
-            self.logger.info("Strategy cancelled")
+            self.logger.info("Strategy run cancelled")
         finally:
             await self.shutdown()
 
     async def shutdown(self):
+        if not self.running:
+            return
         self.logger.info("Shutting down strategy...")
         self.running = False
+        self.stop_event.set()
 
         active_positions = self.exit_manager.get_active_positions() if self.exit_manager else {}
         if active_positions:
@@ -337,34 +334,32 @@ class TrendMomentumXStrategy:
                     self.logger.error(f"Failed to close position {position_id}: {e}")
 
         if self.suite:
-            # Cleanup resources
-            if self.suite.data:
-                await self.suite.data.cleanup()
-            if self.suite.orderbook:
-                await self.suite.orderbook.cleanup()
+            await self.suite.disconnect()
 
         self.logger.info("Strategy shutdown complete")
 
 
-def signal_handler(sig: int, frame: Any) -> None:
-    _ = sig  # Signal number
-    _ = frame  # Current stack frame
-    print("\nReceived interrupt signal, shutting down...")
-    sys.exit(0)
+def create_signal_handler(strategy: "TrendMomentumXStrategy"):
+    def signal_handler(sig: int, frame: Any) -> None:
+        _ = sig, frame  # Unused
+        print("\nReceived interrupt signal, shutting down...")
+        asyncio.create_task(strategy.shutdown())
+
+    return signal_handler
 
 
 async def main():
-    signal.signal(signal.SIGINT, signal_handler)
-
     strategy = TrendMomentumXStrategy()
+    signal.signal(signal.SIGINT, create_signal_handler(strategy))
 
     try:
         await strategy.run()
     except KeyboardInterrupt:
-        print("\nKeyboard interrupt received")
+        print("\nKeyboard interrupt received during setup")
     except Exception as e:
         print(f"Strategy error: {e}")
     finally:
+        # Ensure shutdown is called even if run() fails
         await strategy.shutdown()
 
 

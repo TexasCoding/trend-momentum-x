@@ -2,9 +2,9 @@
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
-from project_x_py.event_bus import Event, EventType
 
 import pytest
+from project_x_py.event_bus import Event, EventType
 
 from main import TrendMomentumXStrategy
 
@@ -23,7 +23,6 @@ class TestTrendMomentumXIntegration:
             assert strategy.trend_analyzer is not None
             assert strategy.signal_generator is not None
             assert strategy.orderbook_analyzer is not None
-            assert strategy.risk_manager is not None
             assert strategy.exit_manager is not None
             assert strategy.running is True
 
@@ -34,7 +33,6 @@ class TestTrendMomentumXIntegration:
             strategy = TrendMomentumXStrategy()
             await strategy.initialize()
 
-            # Set up mock data with volume
             sample_1min_data = sample_1min_data.with_columns(volume=100)
             mock_suite.data.get_data.return_value = sample_1min_data
 
@@ -51,7 +49,7 @@ class TestTrendMomentumXIntegration:
             await strategy.initialize()
 
             strategy.volume_avg_1min = 100.0
-            sample_ohlcv_data = sample_ohlcv_data.with_columns(volume=50)  # Above 20% threshold
+            sample_ohlcv_data = sample_ohlcv_data.with_columns(volume=50)
             mock_suite.data.get_data.return_value = sample_ohlcv_data
 
             result = await strategy.check_volume_filter()
@@ -66,7 +64,7 @@ class TestTrendMomentumXIntegration:
             await strategy.initialize()
 
             strategy.volume_avg_1min = 100.0
-            sample_ohlcv_data = sample_ohlcv_data.with_columns(volume=10)  # Below 20% threshold
+            sample_ohlcv_data = sample_ohlcv_data.with_columns(volume=10)
             mock_suite.data.get_data.return_value = sample_ohlcv_data
 
             result = await strategy.check_volume_filter()
@@ -80,102 +78,77 @@ class TestTrendMomentumXIntegration:
             strategy = TrendMomentumXStrategy()
             await strategy.initialize()
 
-            # Set up conditions for long entry
             strategy.volume_avg_1min = 100.0
 
-            # Use patch context managers for all mocks
             with patch.object(strategy, 'check_volume_filter', new_callable=AsyncMock) as mock_vol, \
-                 patch.object(strategy.risk_manager, 'can_trade') as mock_can_trade, \
                  patch.object(strategy.trend_analyzer, 'get_trade_mode', new_callable=AsyncMock) as mock_mode, \
-                 patch.object(strategy.signal_generator, 'check_long_entry', new_callable=AsyncMock) as mock_signal, \
-                 patch.object(strategy.orderbook_analyzer, 'confirm_long_entry', new_callable=AsyncMock) as mock_ob, \
-                 patch.object(strategy, 'enter_trade', new_callable=AsyncMock) as mock_enter:
-                
+                 patch.object(strategy, 'check_long_entry', new_callable=AsyncMock) as mock_check_long:
+
                 mock_vol.return_value = True
-                mock_can_trade.return_value = (True, "Trading allowed")
                 mock_mode.return_value = "long_only"
-                mock_signal.return_value = (True, {"rsi": 45, "wae": True})
-                mock_ob.return_value = (True, {"imbalance": 1.8})
 
                 await strategy.process_trading_signal()
 
-                mock_enter.assert_called_with("long")
-
-    @pytest.mark.asyncio
-    async def test_process_trading_signal_blocked_by_risk(self, mock_suite):
-        """Test signal blocked by risk management."""
-        with patch("main.TradingSuite.create", return_value=mock_suite):
-            strategy = TrendMomentumXStrategy()
-            await strategy.initialize()
-
-            strategy.check_volume_filter = AsyncMock(return_value=True)
-            strategy.risk_manager.can_trade = Mock(return_value=(False, "Daily loss limit"))
-
-            # Mock other methods that shouldn't be called
-            strategy.trend_analyzer.get_trade_mode = AsyncMock()
-
-            await strategy.process_trading_signal()
-
-            # Should not check trade mode if risk blocks trading
-            strategy.trend_analyzer.get_trade_mode.assert_not_called()
+                mock_check_long.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_enter_trade_complete_flow(self, mock_suite):
-        """Test complete trade entry flow."""
+        """Test complete trade entry flow using managed_trade."""
         with patch("main.TradingSuite.create", return_value=mock_suite):
             strategy = TrendMomentumXStrategy()
             await strategy.initialize()
 
-            # Set up mocks
-            mock_suite.data.get_current_price.return_value = 5000.0
-            strategy.risk_manager.calculate_stop_price = AsyncMock(return_value=4995.0)
-            strategy.risk_manager.calculate_target_price = Mock(return_value=5010.0)
-            strategy.risk_manager.calculate_position_size = AsyncMock(return_value=2)
+            with patch.object(strategy, '_calculate_stop_price', new_callable=AsyncMock) as mock_stop, \
+                 patch.object(strategy, '_calculate_target_price') as mock_target:
 
-            mock_suite.orders.place_bracket_order.return_value = "ORDER123"
+                mock_stop.return_value = 4995.0
+                mock_target.return_value = 5010.0
+                mock_suite.data.get_current_price.return_value = 5000.0
 
-            await strategy.enter_trade("long")
+                mock_managed_trade = AsyncMock()
+                mock_managed_trade.enter_long.return_value = {"entry_order": MagicMock(id=12345)}
+                
+                async_cm = AsyncMock()
+                async_cm.__aenter__.return_value = mock_managed_trade
+                mock_suite.managed_trade.return_value = async_cm
 
-            # Verify order placement
-            mock_suite.orders.place_bracket_order.assert_called_once()
-            call_args = mock_suite.orders.place_bracket_order.call_args[1]
-            assert call_args["side"] == 0  # Long
-            assert call_args["size"] == 2
-            assert call_args["entry_price"] == 5000.5  # Account for 2 tick slippage on long
-            assert call_args["stop_loss_price"] == 4995.5  # Stop adjusted for new entry
-            assert call_args["take_profit_price"] == 5010.5  # Target adjusted for new entry
+                await strategy.enter_trade("long")
 
-            # Verify position added to risk manager
-            # Since add_position is a regular method, mock it
-            strategy.risk_manager.add_position = Mock()
-            
-            # Call enter_trade again with the mocked method
-            await strategy.enter_trade("long")
-            
-            strategy.risk_manager.add_position.assert_called_once()
+                mock_suite.managed_trade.assert_called_once()
+                mock_managed_trade.enter_long.assert_called_once_with(
+                    stop_loss=4995.0, take_profit=5010.0
+                )
+                assert "12345" in strategy.pending_orders
 
     @pytest.mark.asyncio
-    async def test_on_position_update_closed(self, mock_suite):
-        """Test position update event handling."""
+    async def test_on_order_filled(self, mock_suite):
+        """Test order filled event handling."""
         with patch("main.TradingSuite.create", return_value=mock_suite):
             strategy = TrendMomentumXStrategy()
             await strategy.initialize()
 
-            event_data = {
-                "position_id": "POS123",
-                "status": "closed",
-                "pnl": 250.0
-            }
-            event = Event(EventType.POSITION_UPDATED, event_data)
+            strategy.pending_orders["123"] = {"status": "pending"}
+            mock_order = MagicMock(id=123, filledPrice=5000.0)
+            event = Event(EventType.ORDER_FILLED, mock_order)
 
-            # Mock risk_manager methods using patch
-            with patch.object(strategy.risk_manager, 'remove_position') as mock_remove, \
-                 patch.object(strategy.risk_manager, 'update_pnl') as mock_update:
-                
-                await strategy.on_position_update(event)
+            await strategy.on_order_filled(event)
 
-                mock_remove.assert_called_with("POS123")
-                mock_update.assert_called_with(250.0)
+            assert strategy.pending_orders["123"]["status"] == "active"
+
+    @pytest.mark.asyncio
+    async def test_on_order_failed(self, mock_suite):
+        """Test order failed event handling."""
+        with patch("main.TradingSuite.create", return_value=mock_suite):
+            strategy = TrendMomentumXStrategy()
+            await strategy.initialize()
+
+            strategy.pending_orders["123"] = {"status": "pending"}
+            mock_order = MagicMock(id=123)
+            event = Event(EventType.ORDER_REJECTED, mock_order)
+
+            await strategy.on_order_failed(event)
+
+            assert "123" not in strategy.pending_orders
 
     @pytest.mark.asyncio
     async def test_shutdown_closes_positions(self, mock_suite):
@@ -184,52 +157,13 @@ class TestTrendMomentumXIntegration:
             strategy = TrendMomentumXStrategy()
             await strategy.initialize()
 
-            # Set up active positions
-            strategy.exit_manager.get_active_positions = Mock(
-                return_value={"POS123": {}, "POS456": {}}
-            )
+            with patch.object(strategy.exit_manager, 'get_active_positions', return_value={"POS123": {}, "POS456": {}}):
+                await strategy.shutdown()
 
-            await strategy.shutdown()
-
-            # Verify positions were closed
-            assert mock_suite.orders.close_position.call_count == 2
-            mock_suite.orders.close_position.assert_any_call("POS123")
-            mock_suite.orders.close_position.assert_any_call("POS456")
-
-            # Verify cleanup was called
-            mock_suite.data.cleanup.assert_called_once()
-            mock_suite.orderbook.cleanup.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_daily_pnl_reset(self, mock_suite):
-        """Test daily P&L reset at midnight."""
-        from datetime import datetime, date, timedelta
-        
-        with patch("main.TradingSuite.create", return_value=mock_suite):
-            strategy = TrendMomentumXStrategy()
-            await strategy.initialize()
-            
-            # Set last reset to yesterday so reset will trigger
-            yesterday = datetime.now().date() - timedelta(days=1)
-            strategy.last_daily_reset = yesterday
-            
-            # Mock reset_daily_pnl as a MagicMock object
-            strategy.risk_manager.reset_daily_pnl = MagicMock()
-            
-            # Create a simple run loop that executes once
-            strategy.running = True
-
-            async def stop_after_one():
-                await asyncio.sleep(1.5)  # Let it run through one loop iteration
-                strategy.running = False
-
-            task = asyncio.create_task(stop_after_one())
-            
-            # Run strategy - it should detect date change and reset
-            await asyncio.create_task(strategy.run())
-            await task
-
-            strategy.risk_manager.reset_daily_pnl.assert_called()
+                assert mock_suite.orders.close_position.call_count == 2
+                mock_suite.orders.close_position.assert_any_call("POS123")
+                mock_suite.orders.close_position.assert_any_call("POS456")
+                mock_suite.disconnect.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_check_long_entry_flow(self, mock_suite):
@@ -238,22 +172,16 @@ class TestTrendMomentumXIntegration:
             strategy = TrendMomentumXStrategy()
             await strategy.initialize()
 
-            # Set up signal detection
-            strategy.signal_generator.check_long_entry = AsyncMock(
-                return_value=(True, {"signal": "valid"})
-            )
+            with patch.object(strategy.signal_generator, 'check_long_entry', new_callable=AsyncMock) as mock_signal, \
+                 patch.object(strategy.orderbook_analyzer, 'confirm_long_entry', new_callable=AsyncMock) as mock_ob, \
+                 patch.object(strategy, 'enter_trade', new_callable=AsyncMock) as mock_enter:
 
-            # Set up orderbook confirmation
-            strategy.orderbook_analyzer.confirm_long_entry = AsyncMock(
-                return_value=(True, {"reason": "confirmed"})
-            )
+                mock_signal.return_value = (True, {"signal": "valid"})
+                mock_ob.return_value = (True, {"reason": "confirmed"})
 
-            # Mock enter trade
-            strategy.enter_trade = AsyncMock()
+                await strategy.check_long_entry()
 
-            await strategy.check_long_entry()
-
-            strategy.enter_trade.assert_called_with("long")
+                mock_enter.assert_called_with("long")
 
     @pytest.mark.asyncio
     async def test_check_short_entry_rejected_by_orderbook(self, mock_suite):
@@ -262,19 +190,13 @@ class TestTrendMomentumXIntegration:
             strategy = TrendMomentumXStrategy()
             await strategy.initialize()
 
-            # Set up signal detection
-            strategy.signal_generator.check_short_entry = AsyncMock(
-                return_value=(True, {"signal": "valid"})
-            )
+            with patch.object(strategy.signal_generator, 'check_short_entry', new_callable=AsyncMock) as mock_signal, \
+                 patch.object(strategy.orderbook_analyzer, 'confirm_short_entry', new_callable=AsyncMock) as mock_ob, \
+                 patch.object(strategy, 'enter_trade', new_callable=AsyncMock) as mock_enter:
 
-            # Set up orderbook rejection
-            strategy.orderbook_analyzer.confirm_short_entry = AsyncMock(
-                return_value=(False, {"reason": "Iceberg detected"})
-            )
+                mock_signal.return_value = (True, {"signal": "valid"})
+                mock_ob.return_value = (False, {"reason": "Iceberg detected"})
 
-            # Mock enter trade (should not be called)
-            strategy.enter_trade = AsyncMock()
+                await strategy.check_short_entry()
 
-            await strategy.check_short_entry()
-
-            strategy.enter_trade.assert_not_called()
+                mock_enter.assert_not_called()
