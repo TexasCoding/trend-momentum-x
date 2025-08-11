@@ -5,7 +5,7 @@
 ### Source Code Location
 The project-x-py library is installed at:
 - **Main Path**: `.venv/lib/python3.12/site-packages/project_x_py/`
-- **Version Info**: `.venv/lib/python3.12/site-packages/project_x_py-3.1.3.dist-info/`
+- **Version Info**: `.venv/lib/python3.12/site-packages/project_x_py-3.1.4.dist-info/`
 
 ### Official Documentation
 - **Documentation URL**: https://texascoding.github.io/project-x-py/
@@ -127,30 +127,57 @@ mtf_data = await suite.data.get_mtf_data()  # Returns dict[str, pl.DataFrame]
 
 ### 3. OrderBook Analysis (orderbook/)
 ```python
-# Market imbalance - returns LiquidityAnalysisResponse
+# Market imbalance - returns LiquidityAnalysisResponse dict
 imbalance = await suite.orderbook.get_market_imbalance(levels=5)
-# Response fields:
-# - depth_imbalance: float (buy/sell pressure ratio)
-# - bid_depth: dict with volume and level count
-# - ask_depth: dict with volume and level count
-# - analysis: str (text description)
+# Key response fields:
+# - depth_imbalance: float (bid-ask volume ratio, -1 to 1)
+# - bid_liquidity: float (total bid volume)
+# - ask_liquidity: float (total ask volume)
+# - total_liquidity: float (bid + ask volume)
+# - liquidity_score: float (0-10 scale)
+# - market_depth_score: float (0-10 scale)
+# - avg_spread: float
+# - timestamp: str (ISO format)
+
+# Access the imbalance value:
+if imbalance and 'depth_imbalance' in imbalance:
+    ratio = imbalance['depth_imbalance']  # Positive = more bids, Negative = more asks
 
 # Iceberg detection - returns dict
 icebergs = await suite.orderbook.detect_iceberg_orders(
-    min_refreshes=3,
-    volume_threshold=100,
-    time_window_minutes=30
+    min_refreshes=3,          # Min times a level refreshes
+    volume_threshold=100,     # Min volume to consider
+    time_window_minutes=30    # Analysis window
 )
-# Response: {'iceberg_levels': [...], 'timestamp': ...}
+# Response: {
+#     'iceberg_levels': [       # List of detected icebergs
+#         {'side': 'bid'|'ask', 'price': float, 'volume': int, ...}
+#     ],
+#     'analysis_window_minutes': int,
+#     'detection_parameters': {...},
+#     'timestamp': str
+# }
 
-# OrderBook snapshot - returns dict
+# OrderBook snapshot - returns OrderbookSnapshot dict
 snapshot = await suite.orderbook.get_orderbook_snapshot(levels=10)
 # Response: {
-#     'bids': [{'price': float, 'size': int}, ...],
-#     'asks': [{'price': float, 'size': int}, ...],
-#     'best_bid': float,
-#     'best_ask': float,
-#     'spread': float
+#     'instrument': str,
+#     'timestamp': datetime,
+#     'best_bid': float | None,
+#     'best_ask': float | None,
+#     'spread': float | None,
+#     'mid_price': float | None,
+#     'bids': [                 # List of PriceLevelDict
+#         {'price': float, 'volume': int, 'timestamp': datetime}, ...
+#     ],
+#     'asks': [                 # List of PriceLevelDict
+#         {'price': float, 'volume': int, 'timestamp': datetime}, ...
+#     ],
+#     'total_bid_volume': int,
+#     'total_ask_volume': int,
+#     'bid_count': int,
+#     'ask_count': int,
+#     'imbalance': float | None
 # }
 ```
 
@@ -186,15 +213,61 @@ from project_x_py.indicators import (
 data = (data
     .pipe(RSI, period=14)
     .pipe(MACD, fast_period=12, slow_period=26, signal_period=9)
-    .pipe(EMA, period=50, column_name="EMA_50")
+    .pipe(EMA, period=50)  # Creates 'ema_50' column
     .pipe(WAE, sensitivity=150)
     .pipe(FVG, min_gap_size=0.001)
     .pipe(ORDERBLOCK, min_volume_percentile=70)
 )
+```
 
-# Access values
-rsi = data["RSI_14"].tail(1)[0]
-macd_hist = data["MACD_histogram"].tail(1)[0]
+#### IMPORTANT: Indicator Column Naming Convention
+All indicators create **lowercase** column names:
+
+**Basic Indicators:**
+- RSI: `rsi_14` (not RSI_14)
+- EMA: `ema_50`, `ema_200` (not EMA_50, EMA_200)
+- SMA: `sma_20`, `sma_50` (not SMA_20, SMA_50)
+- ATR: `atr_14` (not ATR_14)
+- SAR: `sar` (not SAR)
+
+**MACD Indicator:**
+- `macd` - MACD line
+- `macd_signal` - Signal line
+- `macd_histogram` - Histogram (not MACD_hist)
+
+**WAE (Waddah Attar Explosion):**
+- `wae_explosion` - Explosion value (not WAE_explosion)
+- `wae_trend` - Trend direction
+- `wae_dead_zone` - Dead zone threshold
+
+**FVG (Fair Value Gap):**
+- `fvg_bullish` - Boolean for bullish FVG
+- `fvg_bearish` - Boolean for bearish FVG
+- `fvg_gap_top` - Top of the gap
+- `fvg_gap_bottom` - Bottom of the gap
+- `fvg_gap_size` - Size of the gap
+- `fvg_mitigated` - Whether gap has been filled
+
+**ORDERBLOCK:**
+- `ob_bullish` - Boolean for bullish order block
+- `ob_bearish` - Boolean for bearish order block
+- `ob_top` - Top of the order block zone
+- `ob_bottom` - Bottom of the order block zone
+- `ob_volume` - Volume of the order block
+- `ob_strength` - Strength score
+
+```python
+# Access values - use lowercase column names
+rsi = data["rsi_14"].tail(1)[0]  # NOT "RSI_14"
+macd_hist = data["macd_histogram"].tail(1)[0]  # NOT "MACD_hist"
+ema50 = data["ema_50"].tail(1)[0]  # NOT "EMA_50"
+
+# Check for patterns
+if data["fvg_bullish"].tail(1)[0]:  # NOT "FVG_type" == "bullish"
+    gap_bottom = data["fvg_gap_bottom"].tail(1)[0]
+
+if data["ob_bearish"].tail(1)[0]:  # NOT "ORDERBLOCK_type" == "bearish"
+    ob_top = data["ob_top"].tail(1)[0]
 ```
 
 ## Critical Type Definitions (types/)

@@ -1,7 +1,6 @@
 """Integration tests for the complete trading strategy."""
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from project_x_py.event_bus import Event, EventType
@@ -107,7 +106,7 @@ class TestTrendMomentumXIntegration:
 
                 mock_managed_trade = AsyncMock()
                 mock_managed_trade.enter_long.return_value = {"entry_order": MagicMock(id=12345)}
-                
+
                 async_cm = AsyncMock()
                 async_cm.__aenter__.return_value = mock_managed_trade
                 mock_suite.managed_trade.return_value = async_cm

@@ -7,10 +7,12 @@ load_dotenv(dotenv_path=".env")
 
 
 class Config:
+    LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
     INSTRUMENT = os.getenv("TRADING_INSTRUMENT", "ES")
     TIMEFRAMES = ["15sec", "1min", "5min", "15min"]
 
     RISK_PER_TRADE = float(os.getenv("RISK_PER_TRADE", "0.005"))
+    STOP_TICKS = int(os.getenv("STOP_TICKS", "10"))
     RR_RATIO = float(os.getenv("RR_RATIO", "2"))
     MAX_DAILY_LOSS = float(os.getenv("MAX_DAILY_LOSS", "0.03"))
     MAX_WEEKLY_LOSS = float(os.getenv("MAX_WEEKLY_LOSS", "0.05"))
@@ -26,11 +28,14 @@ class Config:
     MACD_SLOW = int(os.getenv("MACD_SLOW", "26"))
     MACD_SIGNAL = int(os.getenv("MACD_SIGNAL", "9"))
 
+    ATR_PERIOD = int(os.getenv("ATR_PERIOD", "14"))
+
     RSI_PERIOD = int(os.getenv("RSI_PERIOD", "14"))
-    RSI_OVERSOLD = int(os.getenv("RSI_OVERSOLD", "30"))
-    RSI_OVERBOUGHT = int(os.getenv("RSI_OVERBOUGHT", "70"))
+    RSI_OVERSOLD = int(os.getenv("RSI_OVERSOLD", "35"))  # Relaxed from 30
+    RSI_OVERBOUGHT = int(os.getenv("RSI_OVERBOUGHT", "65"))  # Relaxed from 70
     RSI_LONG_CROSS = int(os.getenv("RSI_LONG_CROSS", "40"))
     RSI_SHORT_CROSS = int(os.getenv("RSI_SHORT_CROSS", "60"))
+    RSI_LOOKBACK_BARS = int(os.getenv("RSI_LOOKBACK_BARS", "20"))  # How far back to check for oversold/overbought
 
     WAE_SENSITIVITY = int(os.getenv("WAE_SENSITIVITY", "150"))
 
@@ -46,6 +51,14 @@ class Config:
 
     TRADING_MODE = os.getenv("TRADING_MODE", "paper")  # paper or live
 
+    # Signal requirements - make strategy less restrictive
+    MIN_SIGNALS_REQUIRED = int(os.getenv("MIN_SIGNALS_REQUIRED", "3"))  # Require 3 out of 4 signals
+    PATTERN_REQUIRED = os.getenv("PATTERN_REQUIRED", "false").lower() == "true"  # Make patterns optional
+    WEIGHT_RSI = float(os.getenv("WEIGHT_RSI", "1.0"))  # Signal weights for prioritization
+    WEIGHT_WAE = float(os.getenv("WEIGHT_WAE", "1.5"))  # WAE is more reliable
+    WEIGHT_PRICE = float(os.getenv("WEIGHT_PRICE", "1.0"))
+    WEIGHT_PATTERN = float(os.getenv("WEIGHT_PATTERN", "0.5"))  # Patterns are less reliable
+
     @classmethod
     def get_trading_suite_config(cls) -> dict[str, Any]:
         return {"features": ["orderbook", "risk_manager"], "timeframes": cls.TIMEFRAMES}
@@ -55,9 +68,11 @@ class Config:
         return {
             "instrument": cls.INSTRUMENT,
             "timeframes": cls.TIMEFRAMES,
+            "log_level": cls.LOG_LEVEL,
             "risk": {
                 "per_trade": cls.RISK_PER_TRADE,
                 "rr_ratio": cls.RR_RATIO,
+                "stop_ticks": cls.STOP_TICKS,
                 "max_daily_loss": cls.MAX_DAILY_LOSS,
                 "max_weekly_loss": cls.MAX_WEEKLY_LOSS,
                 "max_concurrent": cls.MAX_CONCURRENT_TRADES,
@@ -69,6 +84,7 @@ class Config:
                 "iceberg_check": cls.ICEBERG_CHECK,
             },
             "indicators": {
+                "atr": {"period": cls.ATR_PERIOD},
                 "ema": {"fast": cls.EMA_FAST, "slow": cls.EMA_SLOW},
                 "macd": {"fast": cls.MACD_FAST, "slow": cls.MACD_SLOW, "signal": cls.MACD_SIGNAL},
                 "rsi": {

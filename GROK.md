@@ -269,9 +269,9 @@ data = (data
     .pipe(ORDERBLOCK, min_volume_percentile=70)
 )
 
-# Access indicator values
-rsi_value = data["RSI_14"].tail(1)[0]
-macd_histogram = data["MACD_histogram"].tail(1)[0]
+# Access indicator values - note lowercase column names
+rsi_value = data["rsi_14"].tail(1)[0]  # lowercase, not RSI_14
+macd_histogram = data["macd_histogram"].tail(1)[0]  # lowercase, not MACD_hist
 ```
 
 ### Instrument Properties

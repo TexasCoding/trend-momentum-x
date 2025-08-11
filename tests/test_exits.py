@@ -2,7 +2,6 @@
 
 import asyncio
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, patch
 
 import polars as pl
 import pytest
