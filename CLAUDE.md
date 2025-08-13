@@ -180,6 +180,9 @@ uv sync --upgrade
 
 ### Code Quality
 ```bash
+# Validate project-x-py API usage (ALWAYS RUN THIS FIRST)
+uv run python validate_api_usage.py
+
 # Run ruff linter
 uv run ruff check
 
@@ -192,8 +195,8 @@ uv run ruff format
 # Run type checking with mypy
 uv run mypy .
 
-# Run all checks (linting + type checking)
-uv run ruff check && uv run mypy .
+# Run all checks (API validation + linting + type checking)
+uv run python validate_api_usage.py && uv run ruff check && uv run mypy .
 ```
 
 ### Testing
@@ -228,6 +231,18 @@ INSTRUMENT=NQ RISK_PER_TRADE=0.01 uv run python main.py
 ```
 
 ## project-x-py API Reference
+
+### CRITICAL SOURCE LOCATIONS
+**ALWAYS reference these paths for accurate API usage:**
+- **Source Code**: `.venv/lib/python3.12/site-packages/project_x_py/`
+- **Main Reference**: `PROJECT_X_PY_REFERENCE.md` (authoritative API guide)
+- **Documentation**: https://texascoding.github.io/project-x-py/
+- **Version Info**: `.venv/lib/python3.12/site-packages/project_x_py-3.1.1.dist-info/`
+
+**When implementing ANY trading functionality:**
+1. First check `PROJECT_X_PY_REFERENCE.md` for patterns
+2. Verify actual implementation in source at `.venv/lib/python3.12/site-packages/project_x_py/`
+3. Never guess API methods - always verify in source code
 
 ### TradingSuite
 Main interface for all trading operations.
@@ -311,9 +326,9 @@ data = (data
     .pipe(ORDERBLOCK, min_volume_percentile=70)
 )
 
-# Access indicator values
-rsi_value = data["RSI_14"].tail(1)[0]
-macd_histogram = data["MACD_histogram"].tail(1)[0]
+# Access indicator values - note lowercase column names
+rsi_value = data["rsi_14"].tail(1)[0]  # lowercase, not RSI_14
+macd_histogram = data["macd_histogram"].tail(1)[0]  # lowercase, not MACD_hist
 ```
 
 ### Instrument Properties

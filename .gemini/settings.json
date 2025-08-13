@@ -1,0 +1,17 @@
+{
+    "mcpServers": {
+      "toolbox": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@smithery/cli@latest",
+          "run",
+          "@smithery/toolbox",
+          "--key",
+          "af08fae1-5f3a-43f6-9e94-86f9638a08a0",
+          "--profile",
+          "yummy-owl-S0TDf6"
+        ]
+      }
+    }
+  }

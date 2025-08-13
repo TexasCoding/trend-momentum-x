@@ -2,8 +2,8 @@
 
 import asyncio
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, patch
 
+import polars as pl
 import pytest
 
 from strategy.exits import ExitManager
@@ -113,32 +113,34 @@ class TestExitManager:
         assert "Time exit" in result["reason"]
 
     @pytest.mark.asyncio
-    async def test_check_trend_reversal_long_to_bearish(self, mock_suite):
+    async def test_check_trend_reversal_long_to_bearish(self, mock_suite, sample_5min_data):
         """Test trend reversal detection for long position."""
         manager = ExitManager(mock_suite)
 
-        # Mock TrendAnalyzer to return bearish trend
-        with patch("strategy.trend_analysis.TrendAnalyzer") as MockTrendAnalyzer:
-            mock_analyzer = MockTrendAnalyzer.return_value
-            mock_analyzer.get_5min_trend = AsyncMock(return_value="bearish")
+        # Create data that results in a bearish MACD histogram
+        data = sample_5min_data.with_columns(
+            close=pl.Series([5000 - i*5 for i in range(len(sample_5min_data))])
+        )
+        mock_suite.data.get_data.return_value = data
 
-            result = await manager._check_trend_reversal("long")
+        result = await manager._check_trend_reversal("long")
 
-            assert result is True
+        assert result is True
 
     @pytest.mark.asyncio
-    async def test_check_trend_reversal_short_to_bullish(self, mock_suite):
+    async def test_check_trend_reversal_short_to_bullish(self, mock_suite, sample_5min_data):
         """Test trend reversal detection for short position."""
         manager = ExitManager(mock_suite)
 
-        # Mock TrendAnalyzer to return bullish trend
-        with patch("strategy.trend_analysis.TrendAnalyzer") as MockTrendAnalyzer:
-            mock_analyzer = MockTrendAnalyzer.return_value
-            mock_analyzer.get_5min_trend = AsyncMock(return_value="bullish")
+        # Create data that results in a bullish MACD histogram
+        data = sample_5min_data.with_columns(
+            close=pl.Series([5000 + i*5 for i in range(len(sample_5min_data))])
+        )
+        mock_suite.data.get_data.return_value = data
 
-            result = await manager._check_trend_reversal("short")
+        result = await manager._check_trend_reversal("short")
 
-            assert result is True
+        assert result is True
 
     @pytest.mark.asyncio
     async def test_check_trailing_activation_long(self, mock_suite):

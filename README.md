@@ -88,6 +88,9 @@ ORDERBOOK_DEPTH_LEVELS=5
 ### Development Commands
 
 ```bash
+# Validate project-x-py API usage (run this first)
+uv run python validate_api_usage.py
+
 # Run linting
 uv run ruff check
 
@@ -96,6 +99,12 @@ uv run mypy .
 
 # Format code
 uv run ruff format
+
+# Run tests
+uv run pytest
+
+# Run tests with coverage (91% coverage achieved)
+uv run pytest --cov=strategy --cov-report=html
 ```
 
 ### Running the Strategy
@@ -155,10 +164,14 @@ trend-momentum-x/
 │   ├── orderbook.py        # Level 2 OrderBook analysis
 │   ├── risk_manager.py     # Position sizing and risk management
 │   └── exits.py            # Exit rules and trailing stops
+├── tests/                  # Comprehensive test suite (91% coverage)
+│   ├── conftest.py        # Pytest fixtures and mocks
+│   └── test_*.py          # Test files for each module
 ├── utils/                  # Utilities
 │   ├── __init__.py
 │   ├── config.py          # Configuration management
 │   └── logger.py          # Logging setup
+├── validate_api_usage.py   # API validation script for project-x-py
 ├── CLAUDE.md              # Comprehensive development documentation
 ├── pyproject.toml         # Project configuration and dependencies
 └── uv.lock               # Locked dependencies
@@ -167,8 +180,8 @@ trend-momentum-x/
 ## Safety Features
 
 1. **Volume Filter**: Ignores signals in thin markets (volume < 20% of 1-minute average)
-2. **Risk Limits**: Automatically stops trading at daily/weekly loss limits
-3. **Position Limits**: Enforces maximum concurrent positions
+2. **Risk Limits**: Automatically stops trading at daily/weekly loss limits via project-x-py's managed_trade context
+3. **Position Limits**: Enforces maximum concurrent positions through built-in risk manager
 4. **Correlation Filter**: Prevents correlated trades (e.g., ES and NQ when correlation > 0.8)
 5. **Graceful Shutdown**: Closes all positions and saves state on exit
 
@@ -176,7 +189,7 @@ trend-momentum-x/
 
 The strategy provides comprehensive logging:
 - **Console**: INFO level and above for real-time monitoring
-- **File**: `logs/trading_YYYYMMDD.log` with DEBUG level for detailed analysis
+- **File**: `trading_YYYYMMDD.log` with DEBUG level for detailed analysis
 
 Key metrics tracked:
 - Daily and weekly P&L

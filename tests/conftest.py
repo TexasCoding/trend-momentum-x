@@ -20,37 +20,37 @@ def event_loop():
 def mock_suite():
     """Create a mock TradingSuite for testing."""
     suite = MagicMock(spec=TradingSuite)
-    
+
     # Mock data manager
     suite.data = AsyncMock()
     suite.data.get_data = AsyncMock()
     suite.data.get_current_price = AsyncMock(return_value=5000.0)
-    
+
     # Mock orderbook
     suite.orderbook = AsyncMock()
     suite.orderbook.get_market_imbalance = AsyncMock()
     suite.orderbook.detect_iceberg_orders = AsyncMock(return_value={"iceberg_levels": []})
     suite.orderbook.get_orderbook_snapshot = AsyncMock()
-    
+
     # Mock orders
     suite.orders = AsyncMock()
     suite.orders.place_bracket_order = AsyncMock(return_value="ORDER123")
     suite.orders.modify_order = AsyncMock()
     suite.orders.close_position = AsyncMock()
-    
+
     # Mock client
     suite.client = Mock()
     account_info = Mock()
     account_info.balance = 100000
     account_info.margin = 50000
     suite.client.get_account_info = Mock(return_value=account_info)
-    
+
     # Mock instrument
     suite.instrument = Mock()
     suite.instrument.id = "ES"
     suite.instrument.tickSize = 0.25
     suite.instrument.tickValue = 12.50
-    
+
     return suite
 
 
@@ -71,6 +71,25 @@ def sample_ohlcv_data():
         "low": [4999.0 + i * 0.5 for i in range(n)],
         "close": [5001.0 + i * 0.5 for i in range(n)],
         "volume": [100 + i * 10 for i in range(n)]
+    })
+
+
+@pytest.fixture
+def sample_15s_data():
+    """Create sample 15-second OHLCV data for testing."""
+    n = 121  # Ensure we have at least 120 bars
+    return pl.DataFrame({
+        "timestamp": pl.datetime_range(
+            start=pl.datetime(2024, 1, 1, 9, 0),
+            end=pl.datetime(2024, 1, 1, 9, 30),
+            interval="15s",
+            eager=True
+        ),
+        "open": [5000.0 + i * 0.25 for i in range(n)],
+        "high": [5002.0 + i * 0.25 for i in range(n)],
+        "low": [4999.0 + i * 0.25 for i in range(n)],
+        "close": [5001.0 + i * 0.25 for i in range(n)],
+        "volume": [100 + i * 5 for i in range(n)]
     })
 
 
