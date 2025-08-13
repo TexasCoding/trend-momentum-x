@@ -3,13 +3,15 @@ import sys
 from datetime import datetime
 
 
-def setup_logger(name: str = "TrendMomentumX", level: str = "INFO") -> logging.Logger:
+def setup_logger(name: str = "TrendMomentumX", level: str = "INFO", pxy_level: str = "WARNING") -> logging.Logger:
     logger = logging.getLogger(name)
 
     if logger.handlers:
         return logger
 
     log_level = getattr(logging, level.upper())
+    px_log_level = getattr(logging, pxy_level.upper())
+
     logger.setLevel(log_level)
 
     console_handler = logging.StreamHandler(sys.stdout)
@@ -35,7 +37,7 @@ def setup_logger(name: str = "TrendMomentumX", level: str = "INFO") -> logging.L
     configure_strategy_logging(log_level, console_handler, file_handler)
 
     # Configure project-x-py loggers to show warnings and errors
-    configure_project_x_logging(log_level, file_handler)
+    configure_project_x_logging(px_log_level, file_handler)
 
     return logger
 

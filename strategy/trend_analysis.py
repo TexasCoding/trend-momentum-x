@@ -23,6 +23,10 @@ class TrendAnalyzer:
 
     async def get_15min_trend(self) -> TrendState:
         data = await self.suite.data.get_data("15min", bars=200)
+        if data is None:
+            self.logger.debug("15min: No data")
+            return "neutral"
+
         if data.is_empty() or len(data) < self.ema_slow:
             self.logger.debug(f"15min: Not enough data (got {len(data)} bars, need {self.ema_slow})")
             return "neutral"
@@ -50,6 +54,10 @@ class TrendAnalyzer:
 
     async def get_5min_trend(self) -> TrendState:
         data = await self.suite.data.get_data("5min", bars=50)
+        if data is None:
+            self.logger.debug("5min: No data")
+            return "neutral"
+
         if data.is_empty() or len(data) < self.macd_slow + self.macd_signal:
             self.logger.debug(f"5min: Not enough data (got {len(data)} bars, need {self.macd_slow + self.macd_signal})")
             return "neutral"
@@ -79,6 +87,10 @@ class TrendAnalyzer:
 
     async def get_1min_trend(self) -> TrendState:
         data = await self.suite.data.get_data("1min", bars=120)
+        if data is None:
+            self.logger.debug("1min: No data")
+            return "neutral"
+
         if data.is_empty() or len(data) < 100:
             self.logger.debug(f"1min: Not enough data (got {len(data)} bars, need 100)")
             return "neutral"

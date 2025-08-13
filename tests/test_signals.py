@@ -16,9 +16,9 @@ class TestSignalGenerator:
         """Test SignalGenerator initialization."""
         generator = SignalGenerator(mock_suite)
         assert generator.suite == mock_suite
-        assert generator.rsi_period == 14
-        assert generator.rsi_oversold == 30
-        assert generator.rsi_overbought == 70
+        assert generator.wae_sensitivity == 150
+        assert generator.pattern_required is True
+        assert generator.weight_pattern == 2.0
 
     @pytest.mark.asyncio
     async def test_check_long_entry_no_data(self, mock_suite):
@@ -29,8 +29,8 @@ class TestSignalGenerator:
         valid, signals = await generator.check_long_entry()
 
         assert valid is False
-        assert signals["rsi_cross"] is False
         assert signals["wae_explosion"] is False
+        assert signals["pattern_edge"] is False
 
     @pytest.mark.asyncio
     async def test_check_long_entry_insufficient_data(self, mock_suite):
@@ -50,240 +50,292 @@ class TestSignalGenerator:
         assert valid is False
 
     @pytest.mark.asyncio
-    async def test_check_long_entry_valid_signal(self, mock_suite):
-        """Test long entry with valid signal conditions."""
-        # Create larger dataset for indicators
-        data = pl.DataFrame({
-            "timestamp": pl.datetime_range(
-                start=pl.datetime(2024, 1, 1, 9, 0),
-                end=pl.datetime(2024, 1, 1, 9, 30),
-                interval="15s",
-                eager=True
-            ),
-            "open": [5000.0 + i * 0.1 for i in range(121)],
-            "high": [5002.0 + i * 0.1 for i in range(121)],
-            "low": [4999.0 + i * 0.1 for i in range(121)],
-            "close": [5001.0 + i * 0.1 for i in range(121)],
-            "volume": [100 + i for i in range(121)]
-        })
-
-        # Mock bullish pattern check
+    async def test_check_long_entry_with_all_signals(self, mock_suite, sample_15s_data):
+        """Test long entry with all signals present including pattern."""
+        # Modify data to trigger signals
+        data = sample_15s_data.with_columns([
+            pl.lit(40.0).alias("wae_explosion"),
+            pl.lit(1.0).alias("wae_trend"),
+            pl.lit(20.0).alias("wae_dead_zone"),
+        ])
+        
+        # Set up for price break (current close > prev high)
+        # Make the second-to-last high lower than the last close
+        data = data.with_columns([
+            pl.when(pl.arange(len(data)) == len(data) - 2)
+            .then(5000.0)  # Set prev high lower
+            .otherwise(pl.col("high"))
+            .alias("high"),
+            pl.when(pl.arange(len(data)) == len(data) - 1)
+            .then(5010.0)  # Set current close higher
+            .otherwise(pl.col("close"))
+            .alias("close")
+        ])
+        
+        mock_suite.data.get_data.return_value = data
+        
         generator = SignalGenerator(mock_suite)
-        with patch.object(generator, '_check_bullish_pattern', new_callable=AsyncMock) as mock_pattern:
-            mock_pattern.return_value = True
-
-            # Set up bullish conditions - manually add indicator columns
-            # The last 20 rows will be used by the strategy
-            rsi_values = [35.0] * 100 + [25.0] * 19 + [45.0, 45.0]  # Cross from oversold (121 total)
-            wae_explosion = [0.0] * 119 + [200.0, 200.0]  # Strong explosion
-            wae_trend = [0.0] * 119 + [1.0, 1.0]  # Positive trend
-            wae_deadzone = [100.0] * 121  # Deadzone threshold
-
-            data = data.with_columns([
-                pl.Series("RSI_14", rsi_values[:len(data)]),
-                pl.Series("WAE_explosion", wae_explosion[:len(data)]),
-                pl.Series("WAE_trend", wae_trend[:len(data)]),
-                pl.Series("WAE_deadzone", wae_deadzone[:len(data)])
-            ])
-
-            mock_suite.data.get_data.return_value = data
-
+        
+        # Mock pattern check to return True
+        with patch.object(generator, '_check_bullish_pattern', return_value=True):
             valid, signals = await generator.check_long_entry()
-
-            # Check individual signal components
-            assert signals["rsi_cross"] is True
-            assert signals["wae_explosion"] is True
-            assert signals["price_break"] is True
-            assert signals["pattern_edge"] is True
-            assert valid is True
+        
+        assert valid is True
+        assert signals["wae_explosion"] is True
+        assert signals["price_break"] is True
+        assert signals["pattern_edge"] is True
+        assert signals["signals_met"] == 3  # pattern + 2 other signals
 
     @pytest.mark.asyncio
-    async def test_check_short_entry_valid_signal(self, mock_suite):
-        """Test short entry with valid signal conditions."""
-        # Create larger dataset
-        data = pl.DataFrame({
-            "timestamp": pl.datetime_range(
-                start=pl.datetime(2024, 1, 1, 9, 0),
-                end=pl.datetime(2024, 1, 1, 9, 30),
-                interval="15s",
-                eager=True
-            ),
-            "open": [5010.0 - i * 0.1 for i in range(121)],
-            "high": [5012.0 - i * 0.1 for i in range(121)],
-            "low": [5009.0 - i * 0.1 for i in range(121)],
-            "close": [5011.0 - i * 0.1 for i in range(121)],
-            "volume": [100 + i for i in range(121)]
-        })
-
-        # Mock bearish pattern check
+    async def test_check_long_entry_without_pattern(self, mock_suite, sample_15s_data):
+        """Test long entry fails without pattern even with other signals."""
+        # Modify data to trigger other signals
+        data = sample_15s_data.with_columns([
+            pl.lit(40.0).alias("wae_explosion"),
+            pl.lit(1.0).alias("wae_trend"),
+            pl.lit(20.0).alias("wae_dead_zone"),
+        ])
+        
+        # Set up for price break
+        data = data.with_columns([
+            pl.when(pl.arange(len(data)) == len(data) - 1)
+            .then(5010.0)
+            .otherwise(pl.col("close"))
+            .alias("close")
+        ])
+        
+        mock_suite.data.get_data.return_value = data
+        
         generator = SignalGenerator(mock_suite)
-        with patch.object(generator, '_check_bearish_pattern', new_callable=AsyncMock) as mock_pattern:
-            mock_pattern.return_value = True
+        
+        # Mock pattern check to return False
+        with patch.object(generator, '_check_bullish_pattern', return_value=False):
+            valid, signals = await generator.check_long_entry()
+        
+        assert valid is False  # Should fail without pattern
+        assert signals["wae_explosion"] is True
+        assert signals["price_break"] is True
+        assert signals["pattern_edge"] is False
+        assert signals["score"] == 0  # No score without pattern
 
-            # Set up bearish conditions
-            rsi_values = [65.0] * 100 + [75.0] * 19 + [55.0, 55.0]  # Cross from overbought (121 total)
-            wae_explosion = [0.0] * 119 + [200.0, 200.0]  # Strong explosion
-            wae_trend = [0.0] * 119 + [-1.0, -1.0]  # Negative trend
-            wae_deadzone = [100.0] * 121  # Deadzone threshold
-
-            data = data.with_columns([
-                pl.Series("RSI_14", rsi_values[:len(data)]),
-                pl.Series("WAE_explosion", wae_explosion[:len(data)]),
-                pl.Series("WAE_trend", wae_trend[:len(data)]),
-                pl.Series("WAE_deadzone", wae_deadzone[:len(data)])
-            ])
-
-            mock_suite.data.get_data.return_value = data
-
+    @pytest.mark.asyncio
+    async def test_check_short_entry_with_all_signals(self, mock_suite, sample_15s_data):
+        """Test short entry with all signals present including pattern."""
+        # Modify data to trigger signals
+        data = sample_15s_data.with_columns([
+            pl.lit(40.0).alias("wae_explosion"),
+            pl.lit(-1.0).alias("wae_trend"),  # Negative for short
+            pl.lit(20.0).alias("wae_dead_zone"),
+        ])
+        
+        # Set up for price break (current close < prev low)
+        # Make the second-to-last low higher than the last close
+        data = data.with_columns([
+            pl.when(pl.arange(len(data)) == len(data) - 2)
+            .then(5000.0)  # Set prev low higher
+            .otherwise(pl.col("low"))
+            .alias("low"),
+            pl.when(pl.arange(len(data)) == len(data) - 1)
+            .then(4990.0)  # Set current close lower
+            .otherwise(pl.col("close"))
+            .alias("close")
+        ])
+        
+        mock_suite.data.get_data.return_value = data
+        
+        generator = SignalGenerator(mock_suite)
+        
+        # Mock pattern check to return True
+        with patch.object(generator, '_check_bearish_pattern', return_value=True):
             valid, signals = await generator.check_short_entry()
+        
+        assert valid is True
+        assert signals["wae_explosion"] is True
+        assert signals["price_break"] is True
+        assert signals["pattern_edge"] is True
+        assert signals["signals_met"] == 3  # pattern + 2 other signals
 
-            assert signals["rsi_cross"] is True
-            assert signals["wae_explosion"] is True
-            assert valid is True
+    @pytest.mark.asyncio
+    async def test_check_short_entry_without_pattern(self, mock_suite, sample_15s_data):
+        """Test short entry fails without pattern even with other signals."""
+        # Modify data to trigger other signals
+        data = sample_15s_data.with_columns([
+            pl.lit(40.0).alias("wae_explosion"),
+            pl.lit(-1.0).alias("wae_trend"),
+            pl.lit(20.0).alias("wae_dead_zone"),
+        ])
+        
+        # Set up for price break
+        data = data.with_columns([
+            pl.when(pl.arange(len(data)) == len(data) - 1)
+            .then(4990.0)
+            .otherwise(pl.col("close"))
+            .alias("close")
+        ])
+        
+        mock_suite.data.get_data.return_value = data
+        
+        generator = SignalGenerator(mock_suite)
+        
+        # Mock pattern check to return False
+        with patch.object(generator, '_check_bearish_pattern', return_value=False):
+            valid, signals = await generator.check_short_entry()
+        
+        assert valid is False  # Should fail without pattern
+        assert signals["wae_explosion"] is True
+        assert signals["price_break"] is True
+        assert signals["pattern_edge"] is False
+        assert signals["score"] == 0  # No score without pattern
 
     @pytest.mark.asyncio
     async def test_check_bullish_pattern(self, mock_suite):
         """Test bullish pattern detection."""
-        # Create 5-minute data with required columns
+        # Create 5min data with patterns
         data_5m = pl.DataFrame({
-            "timestamp": pl.datetime_range(
-                start=pl.datetime(2024, 1, 1, 9, 0),
-                end=pl.datetime(2024, 1, 1, 9, 20),
-                interval="5m",
-                eager=True
-            ),
-            "open": [5000.0 + i for i in range(5)],
-            "high": [5002.0 + i for i in range(5)],
-            "low": [4998.0 + i for i in range(5)],
-            "close": [5001.0 + i for i in range(5)],
-            "volume": [1000 + i * 100 for i in range(5)]
+            "close": [5000.0] * 120,
+            "high": [5005.0] * 120,
+            "low": [4995.0] * 120,
+            "volume": [100] * 120,
+            "ob_bullish": [False] * 119 + [True],
+            "ob_bottom": [None] * 119 + [4995.0],
+            "fvg_bullish": [False] * 120,
         })
-
-        # Apply indicators and mock the results
-        data_5m = data_5m.with_columns([
-            pl.lit("bullish").alias("ORDERBLOCK_type"),
-            pl.lit(4995.0).alias("ORDERBLOCK_low"),
-            pl.lit("neutral").alias("FVG_type")
-        ])
-
-        # Mock 15-second data with current price above order block
+        
         data_15s = pl.DataFrame({
-            "close": [5000.0]  # Above order block low
+            "close": [5000.0],
         })
-
+        
         mock_suite.data.get_data.side_effect = [data_5m, data_15s]
-
+        
         generator = SignalGenerator(mock_suite)
         result = await generator._check_bullish_pattern()
-
+        
         assert result is True
 
     @pytest.mark.asyncio
     async def test_check_bearish_pattern(self, mock_suite):
         """Test bearish pattern detection."""
-        # Create 5-minute data with required columns
+        # Create 5min data with patterns
         data_5m = pl.DataFrame({
-            "timestamp": pl.datetime_range(
-                start=pl.datetime(2024, 1, 1, 9, 0),
-                end=pl.datetime(2024, 1, 1, 9, 20),
-                interval="5m",
-                eager=True
-            ),
-            "open": [5000.0 + i for i in range(5)],
-            "high": [5002.0 + i for i in range(5)],
-            "low": [4998.0 + i for i in range(5)],
-            "close": [5001.0 + i for i in range(5)],
-            "volume": [1000 + i * 100 for i in range(5)]
+            "close": [5000.0] * 120,
+            "high": [5005.0] * 120,
+            "low": [4995.0] * 120,
+            "volume": [100] * 120,
+            "ob_bearish": [False] * 119 + [True],
+            "ob_top": [None] * 119 + [5005.0],
+            "fvg_bearish": [False] * 120,
         })
-
-        # Apply indicators and mock the results
-        data_5m = data_5m.with_columns([
-            pl.lit("bearish").alias("ORDERBLOCK_type"),
-            pl.lit(5005.0).alias("ORDERBLOCK_high"),
-            pl.lit("neutral").alias("FVG_type")
-        ])
-
-        # Mock 15-second data with current price below order block
+        
         data_15s = pl.DataFrame({
-            "close": [5000.0]  # Below order block high
+            "close": [5000.0],
         })
-
+        
         mock_suite.data.get_data.side_effect = [data_5m, data_15s]
-
+        
         generator = SignalGenerator(mock_suite)
         result = await generator._check_bearish_pattern()
-
+        
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_get_microstructure_score(self, mock_suite):
+    async def test_get_microstructure_score(self, mock_suite, sample_15s_data):
         """Test microstructure score calculation."""
-        # Create larger dataset
-        data = pl.DataFrame({
-            "timestamp": pl.datetime_range(
-                start=pl.datetime(2024, 1, 1, 9, 0),
-                end=pl.datetime(2024, 1, 1, 9, 30),
-                interval="15s",
-                eager=True
-            ),
-            "open": [5000.0 + i * 0.1 for i in range(121)],
-            "high": [5002.0 + i * 0.1 for i in range(121)],
-            "low": [4999.0 + i * 0.1 for i in range(121)],
-            "close": [5001.0 + i * 0.1 for i in range(121)],
-            "volume": [100 + i for i in range(121)]
-        })
-
-        # Add RSI and WAE columns manually
-        data = data.with_columns([
-            pl.Series("RSI_14", list(range(30, 30 + len(data)))),
-            pl.Series("WAE_explosion", [150.0] * len(data))
+        # Add WAE data
+        data = sample_15s_data.with_columns([
+            pl.lit(30.0).alias("wae_explosion"),
         ])
-
+        
         mock_suite.data.get_data.return_value = data
-
+        
         generator = SignalGenerator(mock_suite)
         score = await generator.get_microstructure_score()
-
+        
         assert isinstance(score, float)
         assert score >= 0.0
 
     @pytest.mark.asyncio
-    async def test_signal_details_structure(self, mock_suite):
-        """Test that signal details have correct structure."""
-        # Create larger dataset
-        data = pl.DataFrame({
-            "timestamp": pl.datetime_range(
-                start=pl.datetime(2024, 1, 1, 9, 0),
-                end=pl.datetime(2024, 1, 1, 9, 30),
-                interval="15s",
-                eager=True
-            ),
-            "open": [5000.0 + i * 0.1 for i in range(121)],
-            "high": [5002.0 + i * 0.1 for i in range(121)],
-            "low": [4999.0 + i * 0.1 for i in range(121)],
-            "close": [5001.0 + i * 0.1 for i in range(121)],
-            "volume": [100 + i for i in range(121)]
-        })
-
-        # Add required indicator columns
-        data = data.with_columns([
-            pl.Series("RSI_14", [50.0] * len(data)),
-            pl.Series("WAE_explosion", [100.0] * len(data)),
-            pl.Series("WAE_trend", [0.0] * len(data)),
-            pl.Series("WAE_deadzone", [150.0] * len(data))
-        ])
-
-        mock_suite.data.get_data.return_value = data
-
+    async def test_detect_entry_signal_long(self, mock_suite):
+        """Test detect_entry_signal for long signal."""
         generator = SignalGenerator(mock_suite)
-        with patch.object(generator, '_check_bullish_pattern', new_callable=AsyncMock) as mock_pattern:
-            mock_pattern.return_value = False
+        
+        # Mock check methods
+        with patch.object(generator, 'check_long_entry', return_value=(True, {"test": "long"})):
+            with patch.object(generator, 'check_short_entry', return_value=(False, {})):
+                signal_type, details = await generator.detect_entry_signal()
+        
+        assert signal_type == 1
+        assert details == {"test": "long"}
 
-            _, signals = await generator.check_long_entry()
+    @pytest.mark.asyncio
+    async def test_detect_entry_signal_short(self, mock_suite):
+        """Test detect_entry_signal for short signal."""
+        generator = SignalGenerator(mock_suite)
+        
+        # Mock check methods
+        with patch.object(generator, 'check_long_entry', return_value=(False, {})):
+            with patch.object(generator, 'check_short_entry', return_value=(True, {"test": "short"})):
+                signal_type, details = await generator.detect_entry_signal()
+        
+        assert signal_type == -1
+        assert details == {"test": "short"}
 
-            assert "details" in signals
-            assert "rsi" in signals["details"]
-            assert "wae" in signals["details"]
-            assert "price" in signals["details"]
-            assert "prev" in signals["details"]["rsi"]
-            assert "current" in signals["details"]["rsi"]
+    @pytest.mark.asyncio
+    async def test_detect_entry_signal_none(self, mock_suite):
+        """Test detect_entry_signal with no signals."""
+        generator = SignalGenerator(mock_suite)
+        
+        # Mock check methods
+        with patch.object(generator, 'check_long_entry', return_value=(False, {})):
+            with patch.object(generator, 'check_short_entry', return_value=(False, {})):
+                signal_type, details = await generator.detect_entry_signal()
+        
+        assert signal_type == 0
+        assert details == {}
+
+    @pytest.mark.asyncio
+    async def test_pattern_required_for_entry(self, mock_suite, sample_15s_data):
+        """Test that pattern is mandatory for entry."""
+        # Set up data with WAE and price signals but no pattern
+        data = sample_15s_data.with_columns([
+            pl.lit(40.0).alias("wae_explosion"),
+            pl.lit(1.0).alias("wae_trend"),
+            pl.lit(20.0).alias("wae_dead_zone"),
+        ])
+        
+        mock_suite.data.get_data.return_value = data
+        
+        generator = SignalGenerator(mock_suite)
+        
+        # Pattern returns False
+        with patch.object(generator, '_check_bullish_pattern', return_value=False):
+            valid, signals = await generator.check_long_entry()
+        
+        # Should not enter without pattern
+        assert valid is False
+        assert signals["pattern_edge"] is False
+        assert signals["score"] == 0
+
+    @pytest.mark.asyncio
+    async def test_minimum_signals_with_pattern(self, mock_suite, sample_15s_data):
+        """Test that pattern plus one other signal is sufficient."""
+        # Set up data with only WAE signal (no price break)
+        data = sample_15s_data.with_columns([
+            pl.lit(40.0).alias("wae_explosion"),
+            pl.lit(1.0).alias("wae_trend"),
+            pl.lit(20.0).alias("wae_dead_zone"),
+        ])
+        
+        mock_suite.data.get_data.return_value = data
+        
+        generator = SignalGenerator(mock_suite)
+        
+        # Pattern returns True
+        with patch.object(generator, '_check_bullish_pattern', return_value=True):
+            valid, signals = await generator.check_long_entry()
+        
+        # Should enter with pattern + WAE even without price break
+        assert valid is True
+        assert signals["pattern_edge"] is True
+        assert signals["wae_explosion"] is True
+        assert signals["price_break"] is False
+        assert signals["signals_met"] == 2  # pattern + wae

@@ -950,7 +950,7 @@ wheels = [
 
 [[package]]
 name = "project-x-py"
-version = "3.1.4"
+version = "3.1.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cachetools" },
@@ -969,9 +969,9 @@ dependencies = [
     { name = "uvloop" },
     { name = "websocket-client" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/28/38/042eb46960f3a66067d761399c8717d5f872d27670bb180f3a28e9ce900b/project_x_py-3.1.4.tar.gz", hash = "sha256:0dd414bebc0e30cf9540874aaae8e1317f4c90d84aa9f917b459ceb1b1f6c9c3", size = 403693 }
+sdist = { url = "https://files.pythonhosted.org/packages/bf/23/fef634b3f86aa277cd9b87e8aabc06b6d69221168095d4c95dea27fd4509/project_x_py-3.1.10.tar.gz", hash = "sha256:835dfe74db9fc154b654ceb978cbb62e347f2ea1c69e922d45c885ffa3397a6e", size = 410088 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ec/ee/81ece928c1d5f7e8c8136aa12d01da6ae0431ae3d0ae1f64c5bef90b4f1f/project_x_py-3.1.4-py3-none-any.whl", hash = "sha256:9e0016a835c83ed4190414c8262c87ea75c298b7b48d3e9ad983b8fde2808271", size = 346728 },
+    { url = "https://files.pythonhosted.org/packages/a9/ab/09c3173f5a6a4e30b472257b788c74824fa4aa89dfa0e24a31d254372cf5/project_x_py-3.1.10-py3-none-any.whl", hash = "sha256:62579a2f68263db92f7e8d3682eeb5f0879096980c73f5742b76d44943750b43", size = 351470 },
 ]
 
 [package.optional-dependencies]
@@ -1464,7 +1464,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "polars", specifier = ">=0.20.0" },
-    { name = "project-x-py", extras = ["all"], specifier = ">=3.1.3" },
+    { name = "project-x-py", extras = ["all"], specifier = ">=3.1.10" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
 ]
 

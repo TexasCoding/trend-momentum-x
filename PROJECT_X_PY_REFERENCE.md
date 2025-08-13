@@ -5,7 +5,7 @@
 ### Source Code Location
 The project-x-py library is installed at:
 - **Main Path**: `.venv/lib/python3.12/site-packages/project_x_py/`
-- **Version Info**: `.venv/lib/python3.12/site-packages/project_x_py-3.1.4.dist-info/`
+- **Version Info**: `.venv/lib/python3.12/site-packages/project_x_py-3.1.10.dist-info/`
 
 ### Official Documentation
 - **Documentation URL**: https://texascoding.github.io/project-x-py/

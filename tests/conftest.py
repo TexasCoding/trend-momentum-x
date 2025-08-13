@@ -75,6 +75,25 @@ def sample_ohlcv_data():
 
 
 @pytest.fixture
+def sample_15s_data():
+    """Create sample 15-second OHLCV data for testing."""
+    n = 121  # Ensure we have at least 120 bars
+    return pl.DataFrame({
+        "timestamp": pl.datetime_range(
+            start=pl.datetime(2024, 1, 1, 9, 0),
+            end=pl.datetime(2024, 1, 1, 9, 30),
+            interval="15s",
+            eager=True
+        ),
+        "open": [5000.0 + i * 0.25 for i in range(n)],
+        "high": [5002.0 + i * 0.25 for i in range(n)],
+        "low": [4999.0 + i * 0.25 for i in range(n)],
+        "close": [5001.0 + i * 0.25 for i in range(n)],
+        "volume": [100 + i * 5 for i in range(n)]
+    })
+
+
+@pytest.fixture
 def sample_1min_data():
     """Create sample 1-minute OHLCV data for testing."""
     return pl.DataFrame({
