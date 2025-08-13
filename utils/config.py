@@ -18,6 +18,7 @@ class Config:
     MAX_WEEKLY_LOSS = float(os.getenv("MAX_WEEKLY_LOSS", "0.05"))
 
     VOLUME_THRESHOLD_PERCENT = float(os.getenv("VOLUME_THRESHOLD", "0.2"))
+    IMBALANCE_DEPTH_LEVELS = int(os.getenv("IMBALANCE_DEPTH_LEVELS", "5"))
     IMBALANCE_LONG_THRESHOLD = float(os.getenv("IMBALANCE_LONG", "1.5"))
     IMBALANCE_SHORT_THRESHOLD = float(os.getenv("IMBALANCE_SHORT", "0.6667"))
     ICEBERG_CHECK = os.getenv("ICEBERG_CHECK", "true").lower() == "true"
@@ -79,6 +80,7 @@ class Config:
             },
             "filters": {
                 "volume_threshold": cls.VOLUME_THRESHOLD_PERCENT,
+                "imbalance_depth_levels": cls.IMBALANCE_DEPTH_LEVELS,
                 "imbalance_long": cls.IMBALANCE_LONG_THRESHOLD,
                 "imbalance_short": cls.IMBALANCE_SHORT_THRESHOLD,
                 "iceberg_check": cls.ICEBERG_CHECK,

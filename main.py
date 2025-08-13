@@ -95,6 +95,10 @@ class TrendMomentumXStrategy:
             raise ValueError("TradingSuite not initialized")
 
         data_1m = await self.suite.data.get_data("1min")
+        if data_1m is None:
+            self.logger.error("No 1min data available")
+            return entry_price
+
         if not data_1m.is_empty() and len(data_1m) >= self.atr_period:
             data_1m = data_1m.pipe(ATR, period=self.atr_period)
             atr_value = data_1m.tail(1)["atr_14"][0]
@@ -212,6 +216,10 @@ class TrendMomentumXStrategy:
                     self.suite.data.get_data("1min", bars=20),
                     timeout=2.0
                 )
+                if data_1m is None:
+                    self.logger.error("No 1min data available")
+                    return
+
                 if not data_1m.is_empty() and len(data_1m) >= 20:
                     volume_series = data_1m.select("volume").tail(20)
                     if volume_series is not None and len(volume_series) > 0:
@@ -287,6 +295,10 @@ class TrendMomentumXStrategy:
             volume_ok = await self.check_volume_filter()
             self.logger.debug(f"Volume filter result: {volume_ok}")
 
+            if self.orderbook_analyzer:
+                current_imbalance = await self.orderbook_analyzer.get_market_imbalance()
+                self.logger.debug(f"Current imbalance: {current_imbalance}")
+
             if not volume_ok:
                 self.logger.debug("Volume filter check failed, skipping trade signal")
                 return
@@ -326,6 +338,10 @@ class TrendMomentumXStrategy:
 
             self.logger.debug("check_volume_filter: Getting 15sec data")
             data_15s = await self.suite.data.get_data("15sec", bars=1)
+
+            if data_15s is None:
+                self.logger.error("No 15sec data available")
+                return False
             self.logger.debug(f"check_volume_filter: Got data, length={len(data_15s)}")
 
             if data_15s.is_empty():

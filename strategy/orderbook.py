@@ -13,8 +13,7 @@ class OrderBookAnalyzer:
         self.imbalance_long_threshold = Config.IMBALANCE_LONG_THRESHOLD
         self.imbalance_short_threshold = Config.IMBALANCE_SHORT_THRESHOLD
         self.iceberg_check_enabled = Config.ICEBERG_CHECK
-        # NOTE: Not in Config, using hardcoded value
-        self.depth_levels = 5
+        self.depth_levels = Config.IMBALANCE_DEPTH_LEVELS
 
     async def get_market_imbalance(self) -> float | None:
         if not hasattr(self.suite, 'orderbook') or self.suite.orderbook is None:
